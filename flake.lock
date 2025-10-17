@@ -90,7 +90,8 @@
         "dt-overlays": "dt-overlays",
         "flake-utils": "flake-utils",
         "kernel-khadas": "kernel-khadas",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "uboot-khadas": "uboot-khadas"
       }
     },
     "systems": {
@@ -105,6 +106,23 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "uboot-khadas": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1758768329,
+        "narHash": "sha256-K1wf4ii/gIk879OdZ40RXZDPfJr4fZVqoNOHgZruS58=",
+        "owner": "khadas",
+        "repo": "u-boot",
+        "rev": "9834e1b545e3a00ac8d2d49821244acc5b03b3a4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "khadas",
+        "ref": "khadas-vims-v2019.01",
+        "repo": "u-boot",
         "type": "github"
       }
     }

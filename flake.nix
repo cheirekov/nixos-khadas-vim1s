@@ -26,9 +26,15 @@
       url = "github:khadas/khadas-linux-kernel-dt-overlays";
       flake = false;
     };
+
+    # Khadas U-Boot tree for VIM1S (chainload-first strategy).
+    uboot-khadas = {
+      url = "github:khadas/u-boot/khadas-vims-v2019.01";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, kernel-khadas, common_drivers, dt-overlays }:
+  outputs = { self, nixpkgs, flake-utils, kernel-khadas, common_drivers, dt-overlays, uboot-khadas }:
     let
       # We will expose a build artifact for both x86_64-linux (host) and aarch64-linux (native).
       systems = [ "x86_64-linux" "aarch64-linux" ];
@@ -43,9 +49,10 @@
           vim1s-sd-image =
             (lib.nixosSystem {
               system = "aarch64-linux";
-              specialArgs = { inherit kernel-khadas common_drivers dt-overlays; };
+              specialArgs = { inherit kernel-khadas common_drivers dt-overlays uboot-khadas; };
               modules = [
                 ./modules/vim1s.nix
+                ./modules/uboot-vim1s.nix
                 # Standard AArch64 SD image generator (creates a VFAT /boot + ext4 root).
                 ({ modulesPath, ... }: { imports = [ (modulesPath + "/installer/sd-card/sd-image-aarch64.nix") ]; })
               ];
@@ -59,9 +66,10 @@
       nixosConfigurations = {
         vim1s = nixpkgs.lib.nixosSystem {
           system = "aarch64-linux";
-          specialArgs = { inherit kernel-khadas common_drivers dt-overlays; };
+          specialArgs = { inherit kernel-khadas common_drivers dt-overlays uboot-khadas; };
           modules = [
             ./modules/vim1s.nix
+            ./modules/uboot-vim1s.nix
             ({ modulesPath, ... }: { imports = [ (modulesPath + "/installer/sd-card/sd-image-aarch64.nix") ]; })
           ];
         };
