@@ -76,12 +76,12 @@ in
     };
     installChainloadFile = lib.mkOption {
       type = lib.types.bool;
-      default = true;
+      default = false;
       description = "If enabled, a one-shot service copies u-boot.ext into /boot/u-boot.ext on first boot if missing.";
     };
     embedInBoot = lib.mkOption {
       type = lib.types.bool;
-      default = true;
+      default = false;
       description = ''
         When true, embed the built u-boot.ext into the SD image's /boot partition at image build time.
         This enables chainloading our U-Boot directly from the existing Khadas SPI/eMMC U-Boot.
@@ -91,11 +91,11 @@ in
   };
 
   config = lib.mkIf (config.khadas.ubootVim1s.enable) {
-    # Expose the built derivation in the system closure
-    system.build.ubootVim1s = ubootVim1s;
+    # Only build U-Boot when we actually need to embed or install it
+    system.build.ubootVim1s = lib.mkIf (config.khadas.ubootVim1s.embedInBoot || config.khadas.ubootVim1s.installChainloadFile) ubootVim1s;
 
-    # Convenience tools onboard
-    environment.systemPackages = [ ubootVim1s pkgs.ubootTools ];
+    # Convenience tools onboard (don't force building U-Boot unless requested)
+    environment.systemPackages = [ pkgs.ubootTools ];
 
     # First-boot copy to /boot for safe chainloading
     systemd.services."khadas-install-uboot-ext" = lib.mkIf config.khadas.ubootVim1s.installChainloadFile {

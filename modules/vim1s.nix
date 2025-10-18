@@ -11,24 +11,25 @@ let
     pname = "kvim1s-dtb";
     version = "5.15-khadas";
     src = khadasSrc;
-    nativeBuildInputs = (with pkgs; [ gnumake pkg-config gawk bc bison flex dtc gcc python3 ]) ++ [ pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc ];
+    nativeBuildInputs = with pkgs; [ gnumake pkg-config gawk bc bison flex dtc gcc python3 ];
     buildPhase = ''
       cp -r $src ./src
       chmod -R u+w ./src
       cd src
-      # Overlay Khadas common_drivers into kernel tree so Kbuild can find DTS and headers
-      mkdir -p ./arch/arm64/boot/dts
-      cp -rL ./common_drivers/arch/arm64/boot/dts/* ./arch/arm64/boot/dts/ || true
-      mkdir -p ./include
-      cp -rL ./common_drivers/include/* ./include/ 2>/dev/null || true
-      # Build the target DTB using the kernel's build system (handles CPP and dt-bindings)
-      make -j"$NIX_BUILD_CORES" ARCH=arm64 \
-        CROSS_COMPILE=${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc.targetPrefix} \
-        DTC=${pkgs.dtc}/bin/dtc \
-        "arch/arm64/boot/dts/amlogic/kvim1s.dtb"
+      # Preprocess DTS with C preprocessor to resolve #include and macros, then compile with dtc
+      ${pkgs.gcc}/bin/gcc -E -P -x assembler-with-cpp -D__DTS__ -nostdinc \
+        -I ./include \
+        -I ./include/dt-bindings \
+        -I ./arch/arm64/boot/dts \
+        -I ./arch/arm64/boot/dts/amlogic \
+        -I ./common_drivers/include \
+        -I ./common_drivers/arch/arm64/boot/dts \
+        ./common_drivers/arch/arm64/boot/dts/amlogic/kvim1s.dts > kvim1s.pp.dts
+
+      ${pkgs.dtc}/bin/dtc -I dts -O dtb -@ -b 0 -o kvim1s.dtb kvim1s.pp.dts
     '';
     installPhase = ''
-      install -Dm0644 arch/arm64/boot/dts/amlogic/kvim1s.dtb $out/dtbs/amlogic/kvim1s.dtb
+      install -Dm0644 kvim1s.dtb $out/dtbs/amlogic/kvim1s.dtb
     '';
   };
 
