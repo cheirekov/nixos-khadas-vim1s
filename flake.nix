@@ -2,8 +2,8 @@
   description = "NixOS SD image for Khadas VIM1S (Amlogic S905Y4) using vendor Linux 5.15 and generic extlinux U-Boot";
 
 nixConfig = {
-extra-substituters = "https://nau-nixcache.s3.amazonaws.com"
-extra-trusted-public-keys = "nau-nixcache.s3.amazonaws.com-1:HISII/VSRjn+q5/T9Nrue5UmUU66qjppqCC1DEHuQic="
+extra-substituters = "https://nau-nixcache.s3.amazonaws.com";
+extra-trusted-public-keys = "nau-nixcache.s3.amazonaws.com-1:HISII/VSRjn+q5/T9Nrue5UmUU66qjppqCC1DEHuQic=";
 };
   inputs = {
     # Choose a stable nixpkgs channel. You can switch to unstable if needed.
