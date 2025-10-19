@@ -7,6 +7,8 @@ let
     ln -s ${common_drivers} $out/common_drivers
   '';
 
+  overlayNames = [ "4k2k_fb" "i2cm_e" "i2s" "onewire" "panfrost" "pwm_f" "spdifout" "spi0" "uart_c" ];
+
   dtbPackage = pkgs.stdenv.mkDerivation {
     pname = "kvim1s-dtb";
     version = "5.15-khadas";
@@ -16,7 +18,8 @@ let
       cp -r $src ./src
       chmod -R u+w ./src
       cd src
-      # Preprocess DTS with C preprocessor to resolve #include and macros, then compile with dtc
+
+      # 1) Preprocess base DTS with CPP to resolve includes and macros
       ${pkgs.gcc}/bin/gcc -E -P -x assembler-with-cpp -D__DTS__ -nostdinc \
         -I ./include \
         -I ./include/dt-bindings \
@@ -26,10 +29,43 @@ let
         -I ./common_drivers/arch/arm64/boot/dts \
         ./common_drivers/arch/arm64/boot/dts/amlogic/kvim1s.dts > kvim1s.pp.dts
 
+      # 2) Compile base DTB
       ${pkgs.dtc}/bin/dtc -I dts -O dtb -@ -b 0 -o kvim1s.dtb kvim1s.pp.dts
+
+      # 3) Optionally compile and apply overlays from khadas dt-overlays input
+      overlay_dir='${dt-overlays}/overlays/vim1s/5.4'
+      if [ -n "${builtins.concatStringsSep " " overlayNames}" ]; then
+        overlays=""
+        for name in ${builtins.concatStringsSep " " overlayNames}; do
+          src="$overlay_dir/${name}.dts"
+          if [ ! -f "$src" ]; then
+            echo "Overlay '$name' not found at $src" >&2
+            exit 1
+          fi
+          # Preprocess and compile overlay to .dtbo
+          ${pkgs.gcc}/bin/gcc -E -P -x assembler-with-cpp -D__DTS__ -nostdinc \
+            -I ./include \
+            -I ./include/dt-bindings \
+            -I ./arch/arm64/boot/dts \
+            -I ./arch/arm64/boot/dts/amlogic \
+            -I ./common_drivers/include \
+            -I ./common_drivers/arch/arm64/boot/dts \
+            -I "$overlay_dir" \
+            "$src" > "${name}.pp.dts"
+          ${pkgs.dtc}/bin/dtc -I dts -O dtb -@ -o "${name}.dtbo" "${name}.pp.dts"
+          overlays="$overlays ${name}.dtbo"
+        done
+        # Apply overlays in order onto the base DTB
+        ${pkgs.dtc}/bin/fdtoverlay -i kvim1s.dtb -o kvim1s.merged.dtb $overlays
+        mv kvim1s.merged.dtb kvim1s.dtb
+      fi
     '';
     installPhase = ''
-      install -Dm0644 kvim1s.dtb $out/dtbs/amlogic/kvim1s.dtb
+      install -Dm0644 kvim1s.dtb $out/amlogic/kvim1s.dtb
+      if ls *.dtbo >/dev/null 2>&1; then
+        mkdir -p $out/amlogic/overlays
+        install -m0644 *.dtbo $out/amlogic/overlays/
+      fi
     '';
   };
 
@@ -48,11 +84,11 @@ in
 
     # Root label is provided by the sd-image module. Serial console for Amlogic is usually ttyAML0.
     kernelParams = [
+      "console=ttyS0,921600n8"
       "console=ttyAML0,115200n8"
       "root=LABEL=NIXOS_SD"
       "rootfstype=ext4"
-      # If storage init is slow, uncomment:
-      # "rootdelay=3"
+      "rootdelay=3"
     ];
 
     # Conservative initrd modules; harmless if not present.
@@ -75,7 +111,6 @@ in
     enable = true;
     package = lib.mkForce dtbPackage;
     name = "amlogic/kvim1s.dtb";
-    # overlays = [ "amlogic/kvim1s-your-overlay.dtbo" ];
   };
 
   # Firmware (Wi-Fi/BT/etc.)
