@@ -177,6 +177,7 @@ in
   # existing SPI/eMMC loader or the signed SD blob (u-boot.bin.sd.bin.signed.new).
   khadas.ubootVim1s.enable = true;
   khadas.ubootVim1s.embedInBoot = true;
+  khadas.ubootVim1s.defconfig = "kvim1s_defconfig";
 
 
   boot = {

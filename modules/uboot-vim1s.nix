@@ -44,6 +44,17 @@ let
         fi
       fi
       if [ -z "$defcfg" ]; then
+        # Fallback: some Khadas trees store defconfigs under board/*/defconfigs.
+        alt="$(find . -type f -path './board/*/defconfigs/kvim1s_defconfig' | head -n1 || true)"
+        if [ -n "$alt" ]; then
+          echo "Found kvim1s_defconfig at $alt; copying into configs/ for U-Boot build system"
+          mkdir -p configs
+          cp -f "$alt" "configs/kvim1s_defconfig"
+          defcfg="kvim1s_defconfig"
+        fi
+      fi
+
+      if [ -z "$defcfg" ]; then
         echo "No VIM1S defconfig found (expected kvim1s_defconfig or khadas-vim1s_defconfig). Aborting." >&2
         echo "Available Khadas/VIM defconfigs (for reference):" >&2
         if [ -d configs ]; then ls configs | grep -E '(khadas|vim)' >&2 || true; fi
