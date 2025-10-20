@@ -129,6 +129,10 @@ let
   };
 in
 {
+   nixpkgs.config.permittedInsecurePackages = [
+      "openssl-1.1.1w"
+   ];
+
   options.khadas.ubootVim1s = {
     enable = lib.mkOption {
       type = lib.types.bool;
