@@ -76,8 +76,9 @@ EOF
 
   # Build kernel using the pre-generated .config to bypass interactive Q&A and repeated-question failures
   khadasKernel = pkgs.linuxManualConfig {
-    version = "5.15-khadas";
-    modDirVersion = "5.15.0-khadas";
+    # Match the upstream kernel's reported version to satisfy nixpkgs checks
+    version = "5.15.137";
+    modDirVersion = "5.15.137";
     src = khadasSrc;
     configfile = "${kvimsConfig}/.config";
     extraMeta.branch = "5.15";
