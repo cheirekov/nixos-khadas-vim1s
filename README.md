@@ -1,139 +1,164 @@
-# NixOS on Khadas VIM1S (Amlogic S905Y4) — Bring-up Plan and Context
+# NixOS on Khadas VIM1S (Amlogic S905Y4) — Image Build, DTB/Overlays, U‑Boot Embedding
 
 Objective
-- Provide NixOS support for Khadas VIM1S (SoC: Amlogic S905Y4), producing a bootable SD card image via NixOS flakes.
-- Keep the approach reproducible and upstream-aligned where possible.
+- Provide a reproducible NixOS SD image for Khadas VIM1S (S905Y4) using Nix flakes.
+- Align with vendor device tree sources and a 5.15 kernel for maximum compatibility.
+
+What’s new in this flake (Oct 2025 updates)
+- Device Tree build:
+  - kvim1s.dtb is built inside the flake by preprocessing the vendor DTS with gcc -E (no kernel .config needed) and compiling with dtc.
+  - Final DTB path installed in /boot’s Nix closure is amlogic/kvim1s.dtb (no “dtbs/” prefix).
+- Overlays from upstream repo:
+  - Selected overlays for VIM1S are compiled from upstream: github.com/khadas/khadas-linux-kernel-dt-overlays (overlays/vim1s/5.4).
+  - They are merged into the base DTB at image build time via fdtoverlay. No runtime overlay.env/uEnv usage is required.
+- Clean extlinux boot path:
+  - The image boots via generic extlinux. Ubuntu-specific U‑Boot overlay helpers (overlay.env/uEnv.txt) are NOT used.
+- Board console and timing:
+  - Kernel arguments set to console=ttyS0,921600n8 with a fallback console=ttyAML0,115200n8 and rootdelay=3.
+- Optional U‑Boot embedding:
+  - If a signed SD U‑Boot blob is present at the repo root (u-boot.bin.sd.bin.signed.new), it is embedded directly into the produced SD image during the sd-image postBuild phase (in-place dd). This allows raw SD boot without relying on SPI/eMMC U‑Boot.
 
 Hardware/Upstream References
-- Device overview: https://www.khadas.com/vim1s
-- Vendor Linux kernel (5.4 / 5.15 support): https://github.com/khadas/linux/tree/khadas-vim1s-r
-- Device tree source(s): kvim1s.dts in vendor tree or common drivers overlay tree(s)
-- Khadas U-Boot (khadas-vims-v2019.01): https://github.com/khadas/u-boot/tree/khadas-vims-v2019.01
-- U-Boot build docs: https://docs.khadas.com/products/sbc/vim1s/development/linux/build-linux-uboot
-- DT overlays (Ubuntu-oriented): https://github.com/khadas/khadas-linux-kernel-dt-overlays
+- Device: https://www.khadas.com/vim1s
+- Vendor Linux kernel (5.4 / 5.15): https://github.com/khadas/linux/tree/khadas-vim1s-r
+- Khadas U‑Boot: https://github.com/khadas/u-boot/tree/khadas-vims-v2019.01
+- U‑Boot build docs: https://docs.khadas.com/products/sbc/vim1s/development/linux/build-linux-uboot
+- DT overlays (upstream): https://github.com/khadas/khadas-linux-kernel-dt-overlays
 
 Constraints and Boot Strategy (Amlogic)
-- Amlogic boot ROM expects a signed BL2/FIP chain; packaging U-Boot for raw SD boot is non-trivial and board-specific.
-- Easiest short-term path is to leverage a U-Boot already in SPI/eMMC that supports extlinux and boots from SD (common on Khadas devices).
-- Long-term plan is to provide a proper U-Boot derivation from Khadas’ u-boot tree, packaged for VIM1S, and integrate it in a safe boot flow (e.g., chainload from eMMC, or provide documented steps for SPI/eMMC flashing when desired).
+- Amlogic boot ROM expects a signed BL2/FIP chain; packaging U‑Boot for raw SD boot is board‑specific.
+- Short‑term: use existing U‑Boot in SPI/eMMC that supports extlinux to boot from SD.
+- Optional: embed a signed SD U‑Boot blob into the image so it can boot raw from SD.
+- Long‑term: provide a proper U‑Boot derivation from the Khadas tree or chainload (u‑boot.ext), but this is optional and gated.
 
 Current Implementation (this flake)
 - Image generator: NixOS sd-image for aarch64 (VFAT /boot + ext4 root with label NIXOS_SD).
-- Kernel: nixpkgs linuxPackages_5_15 (chosen to align with vendor 5.15 DT compatibility; mainline 6.x caused DT mismatches).
-- DTB: kvim1s.dtb compiled from Khadas vendor sources in-flake using dtc.
-- Bootloader: generic-extlinux-compatible (expects a U-Boot on device that can read /boot/extlinux/extlinux.conf from SD).
-- Root filesystem: ext4 (label NIXOS_SD), serial console on ttyAML0.
+- Kernel: nixpkgs linuxPackages_5_15 (matches vendor 5.15 DT compatibility; mainline 6.x may mismatch).
+- DTB:
+  - Base DTS from vendor/common_drivers is preprocessed via gcc -E and compiled with dtc.
+  - Final DTB is installed as amlogic/kvim1s.dtb (no “dtbs/” prefix).
+- Overlays:
+  - Selected overlays are compiled from upstream (overlays/vim1s/5.4) and merged into the base DTB at build time via fdtoverlay.
+  - This removes the need for runtime overlay.env/uEnv in U‑Boot.
+- Bootloader:
+  - generic-extlinux-compatible (U‑Boot must read /boot/extlinux/extlinux.conf).
+  - Optional raw SD boot by embedding a signed SD U‑Boot blob during image build (see “U‑Boot Embedding”).
+- Root filesystem: ext4 (label NIXOS_SD).
+- Serial: console=ttyS0,921600n8 (board doc), with fallback console=ttyAML0,115200n8.
 
 Repository Layout
-- flake.nix — flake outputs (sd-image package and nixosConfigurations.vim1s).
+- flake.nix — outputs and package. Produces the SD image package: .#vim1s-sd-image.
 - modules/vim1s.nix — VIM1S board module:
   - Sets boot.kernelPackages = linuxPackages_5_15
   - Enables loader.generic-extlinux-compatible
-  - Builds kvim1s.dtb from vendor sources and installs it under /boot/dtbs
-  - Adds common initrd modules for G12/SM1 family
-  - Enables SSH + NetworkManager, creates default users
-- (Planned) modules/uboot-vim1s.nix — U-Boot derivation & packaging (see Next Steps).
+  - Builds amlogic/kvim1s.dtb using gcc -E + dtc (no kernel .config needed)
+  - Compiles and merges overlays from upstream (overlays/vim1s/5.4) into the DTB at build time
+  - Adds initrd modules for G12/SM1 family
+  - Sets kernelParams: console=ttyS0,921600n8 console=ttyAML0,115200n8 root=LABEL=NIXOS_SD rootfstype=ext4 rootdelay=3
+  - Optional: embeds a signed SD U‑Boot blob into the generated image if u-boot.bin.sd.bin.signed.new is present
+- modules/uboot-vim1s.nix — U‑Boot derivation & packaging (optional, gated). Also exposes the chainload u‑boot.ext install as a service (disabled by default).
 
 Build Requirements
 - Nix installed.
-- Build on aarch64 host (native) or on x86_64 with user-mode emulation.
+- Build on aarch64 host (native) or x86_64 with user‑mode emulation.
 - For x86_64 hosts:
   - Debian/Ubuntu:
     - sudo apt update
     - sudo apt install -y qemu-user-static binfmt-support
     - sudo update-binfmts --enable qemu-aarch64
   - NixOS:
-    - Add to your system configuration: boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+    - In your config: boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
     - Rebuild system.
 
 How to Build
 - Build the SD image:
   - nix build .#vim1s-sd-image
 - Result artifact:
-  - result/sd-image/nixos-vim1s-aarch64-linux.img.zst
+  - result/sd-image/nixos-vim1s-<version>-aarch64-linux.img(.zst)
+
+U‑Boot Embedding (optional, raw SD boot)
+- If your board doesn’t have a suitable U‑Boot in SPI/eMMC, you can embed a signed SD U‑Boot into the built image.
+- Place the blob at repo root as: u-boot.bin.sd.bin.signed.new
+- During image build, modules/vim1s.nix will run sdImage.postBuildCommands to write the blob into the image with dd:
+  - dd if=... bs=1 count=444 conv=fsync,notrunc
+  - dd if=... bs=512 skip=1 seek=1 conv=fsync,notrunc
+- This mirrors the nixos-generators approach. Use at your own risk; ensure the blob matches VIM1S (SM1/Y4) expectations.
 
 How to Flash
-- Replace /dev/sdX with your SD device (e.g. /dev/mmcblk0). Double-check with lsblk.
+- Replace /dev/sdX with your SD device (e.g. /dev/mmcblk0). Double‑check with lsblk.
 - Write image:
   - zstdcat result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 - Eject safely when done.
 
 Boot Instructions
-- Insert SD into VIM1S and power on with serial attached for logs (115200 8N1).
-- Expected: existing Khadas U-Boot in SPI/eMMC finds /boot/extlinux/extlinux.conf on the SD and boots the NixOS kernel with FDT amlogic/kvim1s.dtb.
+- Attach serial at 921600 8N1 on ttyS0. A fallback console is configured on ttyAML0 at 115200 8N1.
+- Insert SD into VIM1S and power on.
+- Expected: U‑Boot finds /boot/extlinux/extlinux.conf on the SD and loads:
+  - Image, initrd from /boot/nixos/<hash>/
+  - DTB from /boot/nixos/<hash>/amlogic/kvim1s.dtb
 - If it continues to boot eMMC:
-  - Interrupt U-Boot, then:
+  - Interrupt U‑Boot, then:
     - mmc list
     - mmc dev 1
     - fatls mmc 1:1 / (or ext4ls)
-    - ext4ls mmc 1:1 /boot
-    - ext4ls mmc 1:1 /boot/extlinux
-  - Boot via the extlinux menu or adjust boot targets temporarily.
-- If your U-Boot lacks extlinux, you can flash a Khadas U-Boot with extlinux support per Khadas docs or use chainloading.
+    - ext4ls mmc 1:1 /boot /boot/extlinux
+  - Choose the extlinux menu or set boot targets to SD.
+
+Important: Do NOT use Ubuntu’s overlay helpers
+- Do not copy /boot/uEnv.txt or any kvim1s.dtb.overlay.env into the SD image.
+- Do not copy a kvim1s.dtb.overlays directory.
+- These Ubuntu‑specific helpers can cause FDT_ERR_NOTFOUND/rsvmem errors in U‑Boot and break the boot.
+- Overlays are compiled and merged at build time in this flake, so runtime helpers are unnecessary.
+
+Device Tree Details
+- hardware.deviceTree.name = "amlogic/kvim1s.dtb"
+- The DTB is placed in the Nix closure at /boot/nixos/<hash>/amlogic/kvim1s.dtb.
+- Do not move/rename it on the SD. Let extlinux reference the exact closure path.
+
+Overlays (built from upstream)
+- This flake compiles overlays from: github.com/khadas/khadas-linux-kernel-dt-overlays/tree/main/overlays/vim1s/5.4
+- The default overlay list (compiled and applied at image build) currently includes:
+  - 4k2k_fb, i2cm_e, i2s, onewire, panfrost, pwm_f, spdifout, spi0, uart_c
+- The built .dtbo files are also installed under amlogic/overlays in the DT package for reference.
+- To change overlay selection: edit overlayNames in modules/vim1s.nix (or we can expose a Nix option later).
 
 Console, Users, Networking
-- Serial console: ttyAML0 at 115200 8N1 (e.g., screen /dev/ttyUSB0 115200).
+- Serial console: primary ttyS0 at 921600 8N1; fallback ttyAML0 at 115200 8N1.
 - Users:
   - user: nixos / pass: nixos
   - root: root / pass: root
 - SSH enabled; NetworkManager manages networking.
 
-Device Tree Details
-- modules/vim1s.nix builds kvim1s.dtb from the vendor sources and installs it under /boot/dtbs, referenced as:
-  - hardware.deviceTree.name = "amlogic/kvim1s.dtb";
-- If boot fails with “DTB not found”, mount SD /boot and inspect /boot/dtb or /boot/dtbs to confirm the exact DTB path. Update hardware.deviceTree.name accordingly.
-
-Known Issues Previously Encountered
-- Using mainline kernels (6.x) alongside the vendor DTB caused boot issues (kernel/init loaded then DT mismatch symptoms).
-  - Mitigation: use nixpkgs linuxPackages_5_15 for better compatibility with vendor DT.
-- A previous syntax error during flake evaluation referenced modules/vim1s.nix sed line inside the dtb buildPhase. This has been corrected.
-  - The expected sed line is:
-    - sed -E -i 's@^[[:space:]]*#include[[:space:]]+"([^"]+)"@/include/ "\\1"@' "$f"
-  - If you hit an evaluation error pointing to modules/vim1s.nix with unexpected text near that sed command, ensure the file matches the repository version.
-
 Troubleshooting
-- No boot / blank:
-  - Check serial logs; ensure /boot/extlinux/extlinux.conf exists and references FDT amlogic/kvim1s.dtb.
-  - If storage is slow to come up, add rootdelay=3 to boot.kernelParams in modules/vim1s.nix.
-- Kernel boots but cannot mount root:
-  - Confirm the root partition label is NIXOS_SD (set by sd-image module).
-  - Check that /dev/disk/by-label/NIXOS_SD resolves in the initrd shell.
-- Networking:
-  - Ethernet should work early.
-  - Wi-Fi/BT may need specific firmware/overlays; capture dmesg logs and adjust.
-
-Next Steps (for the upcoming task)
-1) U-Boot for NixOS (from Khadas u-boot: khadas-vims-v2019.01)
-   - Create a derivation that builds U-Boot for VIM1S.
-   - Determine the correct packaging for Amlogic SM1/Y4 (e.g., u-boot.bin.sd.bin, FIP packaging, or u-boot.ext for chainload).
-   - Provide a safe integration strategy:
-     - Prefer chainloading (keep eMMC/SPI U-Boot intact) where possible.
-     - Document explicit flashing steps only as an opt-in, with clear risk notes.
-   - Optionally copy u-boot.ext to /boot so an existing U-Boot can chainload it.
-
-2) Keep kernel at nixpkgs 5.15 initially
-   - Validate core peripherals with vendor DTB (Ethernet/USB/UART).
-   - If specific devices misbehave, consider building vendor 5.15 kernel via buildLinux as an alternative kernelPackages set.
-
-3) Optional DT overlays
-   - Compile selected Khadas overlays to .dtbo and expose via:
-     - hardware.deviceTree.overlays = [ "amlogic/your-overlay.dtbo" ];
-   - Only if/when needed.
-
-4) Validate and document
-   - Capture UART logs (U-Boot and kernel) for first boot.
-   - Update README with confirmed-working paths and any quirks.
+- “DTB not found”:
+  - Ensure extlinux.conf FDT points to ../nixos/<hash>/amlogic/kvim1s.dtb (note: no “dtbs/” prefix).
+- FDT_ERR_NOTFOUND / rsvmem check failed in U‑Boot:
+  - Remove /boot/uEnv.txt, kvim1s.dtb.overlay.env, and any kvim1s.dtb.overlays you copied. These are Ubuntu helpers and not needed here.
+- No kernel logs after “Starting kernel …”:
+  - Verify the serial console: 921600 8N1 on ttyS0. A fallback on ttyAML0 at 115200 is also configured.
+  - You can temporarily append earlycon=meson,uartao,0xff803000 ignore_loglevel initcall_debug to APPEND in extlinux.conf for low‑level diagnostics.
+- Root not mounting:
+  - Confirm the root partition label is NIXOS_SD; check /dev/disk/by-label/NIXOS_SD in initrd.
+- If an overlay causes issues:
+  - Rebuild image with overlayNames = [] in modules/vim1s.nix for a base DTB test, then re‑enable overlays incrementally.
 
 Flake Quick Reference
 - Build SD image:
   - nix build .#vim1s-sd-image
-- NixOS configuration path (alternative use):
-  - .#nixosConfigurations.vim1s
+- NixOS configuration (alternative):
+  - nix build .#nixosConfigurations.vim1s.config.system.build.toplevel
 
 Reproducibility Notes
-- Vendor sources are pinned as non-flake inputs (flake.lock). Run nix flake update to advance.
-- Image base name set via sdImage.imageBaseName = "nixos-vim1s".
+- Vendor sources and overlays are pinned as non‑flake inputs (flake.lock). Use nix flake update to advance.
+- Image base name set via sdImage.imageBaseName in the module.
 
-Use this README as the model context prompt for the next task
-- Goal: “Make NixOS SD image boot on VIM1S with Khadas U-Boot and nixpkgs 5.15 kernel; compile vendor DTB; then integrate a proper U-Boot derivation.”
-- Start with implementing the U-Boot derivation and a safe boot flow (chainload-first).
+Next Steps
+- Optional: Provide a robust U‑Boot derivation (khadas-vims-v2019.01) and a safe boot flow:
+  - Chainload u‑boot.ext (keep SPI/eMMC U‑Boot intact), or
+  - Provide an opt‑in image variant with the signed SD U‑Boot embedded (already supported via u-boot.bin.sd.bin.signed.new), with clear documentation and risks.
+- Optional: Expose a Nix option to select overlays instead of editing overlayNames in modules/vim1s.nix.
+- Capture and document UART logs confirming a clean extlinux boot on VIM1S (with and without U‑Boot embedding).
+
+Use this README as the prompt for further tasks
+- Goal: “Boot NixOS SD image on VIM1S using nixpkgs 5.15 kernel with vendor DTB; compile and merge upstream overlays at build time; optionally embed a signed SD U‑Boot blob.”
+- Follow‑ups: iterate overlay selection, integrate a U‑Boot derivation, or provide a chainload‑first strategy.
