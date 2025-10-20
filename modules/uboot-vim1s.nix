@@ -1,7 +1,10 @@
 { lib, pkgs, config, uboot-khadas, ... }:
 
 let
-  ubootVim1s = pkgs.stdenv.mkDerivation {
+  # Use an older host compiler to build legacy vendor U-Boot tools cleanly.
+  hostStdenv = pkgs.overrideCC pkgs.stdenv pkgs.gcc12;
+
+  ubootVim1s = hostStdenv.mkDerivation {
     pname = "uboot-khadas-vim1s";
     version = "v2019.01-khadas";
     src = uboot-khadas;
@@ -14,7 +17,7 @@ let
       swig
       python3
       pkg-config
-      openssl
+      openssl_1_1
       gnumake
       gcc
       pkgsCross.aarch64-multiplatform.stdenv.cc
@@ -84,6 +87,8 @@ let
       export KCFLAGS="''${KCFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
       export KBUILD_CFLAGS="''${KBUILD_CFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch -DCONFIG_FIT -UCONFIG_FIT_SIGNATURE -DCONFIG_SHA256 -DCONFIG_SHA1"
       export CFLAGS="''${CFLAGS:-} -Wno-error"
+      # Host linker occasionally drops needed objects; disable --as-needed.
+      export LDFLAGS="''${LDFLAGS:-} -Wl,--no-as-needed"
 
       # Build out-of-tree into ./build to avoid Makefile mkdir/pwd issues.
       make O=build "$defcfg"
