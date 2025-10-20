@@ -1,0 +1,57 @@
+@nix { "action": "setPhase", "phase": "unpackPhase" }
+Running phase: unpackPhase
+unpacking source archive /nix/store/waan4l9n7wqd3wqd4fhvb4mwkwqdxz40-khadas-linux-src-with-common-drivers
+source root is khadas-linux-src-with-common-drivers
+@nix { "action": "setPhase", "phase": "patchPhase" }
+Running phase: patchPhase
+@nix { "action": "setPhase", "phase": "updateAutotoolsGnuConfigScriptsPhase" }
+Running phase: updateAutotoolsGnuConfigScriptsPhase
+@nix { "action": "setPhase", "phase": "configurePhase" }
+Running phase: configurePhase
+no configure script, doing nothing
+@nix { "action": "setPhase", "phase": "buildPhase" }
+Running phase: buildPhase
+  HOSTCC  scripts/basic/fixdep
+  HOSTCC  scripts/kconfig/conf.o
+  HOSTCC  scripts/kconfig/confdata.o
+  HOSTCC  scripts/kconfig/expr.o
+  LEX     scripts/kconfig/lexer.lex.c
+  YACC    scripts/kconfig/parser.tab.[ch]
+  HOSTCC  scripts/kconfig/lexer.lex.o
+  HOSTCC  scripts/kconfig/menu.o
+  HOSTCC  scripts/kconfig/parser.tab.o
+  HOSTCC  scripts/kconfig/preprocess.o
+  HOSTCC  scripts/kconfig/symbol.o
+  HOSTCC  scripts/kconfig/util.o
+  HOSTLD  scripts/kconfig/conf
+drivers/net/wireless/bcmdhd/Kconfig:53:warning: defaults for choice values not supported
+.config:12457:warning: override: reassigning to symbol DEVTMPFS
+.config:12458:warning: override: reassigning to symbol DEVTMPFS_MOUNT
+.config:12459:warning: override: reassigning to symbol CGROUPS
+.config:12460:warning: override: reassigning to symbol INOTIFY_USER
+.config:12461:warning: override: reassigning to symbol SIGNALFD
+.config:12462:warning: override: reassigning to symbol TIMERFD
+.config:12463:warning: override: reassigning to symbol EPOLL
+.config:12464:warning: override: reassigning to symbol NET
+.config:12465:warning: override: reassigning to symbol SYSFS
+.config:12466:warning: override: reassigning to symbol PROC_FS
+.config:12467:warning: override: reassigning to symbol FHANDLE
+.config:12468:warning: override: reassigning to symbol CRYPTO_USER_API_HASH
+.config:12469:warning: override: reassigning to symbol CRYPTO_HMAC
+.config:12470:warning: override: reassigning to symbol CRYPTO_SHA256
+.config:12471:warning: override: reassigning to symbol AUTOFS_FS
+.config:12472:warning: override: reassigning to symbol TMPFS
+.config:12473:warning: override: reassigning to symbol TMPFS_POSIX_ACL
+.config:12474:warning: override: reassigning to symbol TMPFS_XATTR
+.config:12475:warning: override: reassigning to symbol SECCOMP
+.config:12476:warning: override: reassigning to symbol BLK_DEV_INITRD
+.config:12477:warning: override: reassigning to symbol MODULES
+.config:12478:warning: override: reassigning to symbol BINFMT_ELF
+.config:12479:warning: override: reassigning to symbol UNIX
+.config:12480:warning: override: reassigning to symbol DMI
+.config:12481:warning: override: reassigning to symbol DMIID
+.config:12483:warning: override: reassigning to symbol ARCH_MESON
+#
+# configuration written to .config
+#
+yes: standard output: Broken pipe
