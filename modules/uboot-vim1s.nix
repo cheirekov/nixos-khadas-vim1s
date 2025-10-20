@@ -78,10 +78,10 @@ let
       grep -RIl -- '-Werror' . | xargs -r sed -i 's/-Werror//g'
 
       # Soften diagnostics for ancient vendor tree on modern GCC.
-      export HOSTCFLAGS="${HOSTCFLAGS:-} -Wno-error -Wno-array-bounds"
-      export KCFLAGS="${KCFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
-      export KBUILD_CFLAGS="${KBUILD_CFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
-      export CFLAGS="${CFLAGS:-} -Wno-error"
+      export HOSTCFLAGS="''${HOSTCFLAGS:-} -Wno-error -Wno-array-bounds"
+      export KCFLAGS="''${KCFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
+      export KBUILD_CFLAGS="''${KBUILD_CFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
+      export CFLAGS="''${CFLAGS:-} -Wno-error"
 
       # Build out-of-tree into ./build to avoid Makefile mkdir/pwd issues.
       make O=build "$defcfg"
