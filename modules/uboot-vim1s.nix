@@ -28,15 +28,21 @@ let
       cp -r "$src" ./src
       chmod -R u+w ./src
       cd src
-      # Try likely defconfigs in order; stop on first that works.
-      if ! make khadas-vim1s_defconfig 2>/dev/null; then
-        if ! make kvim1s_defconfig 2>/dev/null; then
-          if ! make vim1s_defconfig 2>/dev/null; then
-            echo "No suitable defconfig for VIM1S found in Khadas U-Boot tree" >&2
-            exit 1
-          fi
+      # Auto-detect a suitable defconfig from configs/ to avoid guessing and loops.
+      defcfg=""
+      if [ -d configs ]; then
+        defcfg="$(ls configs | grep -E '(^|/)k?vim1s.*_defconfig$' | head -n1 || true)"
+        if [ -z "$defcfg" ]; then
+          defcfg="$(ls configs | grep -E '(khadas|vim1|kvim).*_defconfig$' | head -n1 || true)"
         fi
       fi
+      if [ -z "$defcfg" ]; then
+        echo "No suitable defconfig for VIM1S found in Khadas U-Boot tree. Candidates (filtered):" >&2
+        if [ -d configs ]; then ls configs | grep -E '(khadas|vim)' >&2 || true; fi
+        exit 1
+      fi
+      echo "Using U-Boot defconfig: $defcfg"
+      make "$defcfg"
       make -j"$NIX_BUILD_CORES"
       runHook postBuild
     '';

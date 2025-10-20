@@ -175,8 +175,8 @@ in
   system.requiredKernelConfig = lib.mkForce [ ];
   # Do not build/embed U-Boot during kernel bring-up; avoid defconfig loops and rely on
   # existing SPI/eMMC loader or the signed SD blob (u-boot.bin.sd.bin.signed.new).
-  khadas.ubootVim1s.enable = false;
-  khadas.ubootVim1s.embedInBoot = false;
+  khadas.ubootVim1s.enable = true;
+  khadas.ubootVim1s.embedInBoot = true;
 
 
   boot = {
