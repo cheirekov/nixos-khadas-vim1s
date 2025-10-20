@@ -22,6 +22,15 @@ let
 
     enableParallelBuilding = true;
     makeFlags = [ "CROSS_COMPILE=${pkgs.pkgsCross.aarch64-multiplatform.stdenv.cc.targetPrefix}" ];
+    # Relax warnings and hardening for legacy vendor U‑Boot on modern toolchains.
+    NIX_CFLAGS_COMPILE = lib.concatStringsSep " " [
+      "-Wno-error"
+      "-Wno-array-bounds"
+      "-Wno-error=enum-int-mismatch"
+      "-Wno-stringop-overflow"
+      "-Wno-stringop-truncation"
+    ];
+    hardeningDisable = [ "fortify" ];
 
     buildPhase = ''
       runHook preBuild
@@ -30,7 +39,7 @@ let
       cd src
 
       # Honor explicit defconfig from Nix option if provided
-      DEF_FROM_CFG=${lib.escapeShellArg (config.khadas.ubootVim1s.defconfig or "")}
+      DEF_FROM_CFG='${lib.escapeShellArg (if (config.khadas.ubootVim1s.defconfig or null) != null then config.khadas.ubootVim1s.defconfig else "")}'
       defcfg=""
       if [ -n "$DEF_FROM_CFG" ]; then
         defcfg="$DEF_FROM_CFG"
@@ -65,9 +74,18 @@ let
       # Nix sandbox has no /bin; patch any hardcoded /bin/pwd to 'pwd'.
       grep -RIl '/bin/pwd' . | xargs -r sed -i 's:/bin/pwd:pwd:g'
 
+      # Strip any hard-coded -Werror in the tree to ensure warnings don't halt the build.
+      grep -RIl -- '-Werror' . | xargs -r sed -i 's/-Werror//g'
+
+      # Soften diagnostics for ancient vendor tree on modern GCC.
+      export HOSTCFLAGS="${HOSTCFLAGS:-} -Wno-error -Wno-array-bounds"
+      export KCFLAGS="${KCFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
+      export KBUILD_CFLAGS="${KBUILD_CFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
+      export CFLAGS="${CFLAGS:-} -Wno-error"
+
       # Build out-of-tree into ./build to avoid Makefile mkdir/pwd issues.
       make O=build "$defcfg"
-      make -j"$NIX_BUILD_CORES" O=build
+      make -j"$NIX_BUILD_CORES" O=build HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS"
       runHook postBuild
     '';
 

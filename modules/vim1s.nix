@@ -183,7 +183,7 @@ in
   # existing SPI/eMMC loader or the signed SD blob (u-boot.bin.sd.bin.signed.new).
   # Avoid building U-Boot for now (vendor tree fails with modern GCC). We still embed
   # a u-boot.ext if provided at repo root (uBootExtPrebuilt) so chainload works.
-  khadas.ubootVim1s.enable = false;
+  khadas.ubootVim1s.enable = true;
   khadas.ubootVim1s.embedInBoot = true;
   khadas.ubootVim1s.defconfig = "kvim1s_defconfig";
 
