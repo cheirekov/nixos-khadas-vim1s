@@ -63,6 +63,17 @@ CONFIG_DMI=y
 CONFIG_DMIID=y
 # Ensure Amlogic Meson platform is enabled in vendor tree
 CONFIG_ARCH_MESON=y
+
+# Fix link error from hid-core referencing uhid_hid_driver:
+# Build UHID into the kernel so hid-core can reference it.
+CONFIG_UHID=y
+
+# Tame BTF/pahole issues with toolchain: keep DWARF v4 and disable BTF.
+CONFIG_DEBUG_INFO=y
+CONFIG_DEBUG_INFO_DWARF4=y
+# CONFIG_DEBUG_INFO_DWARF5 is not set
+CONFIG_DEBUG_INFO_BTF=n
+CONFIG_DEBUG_INFO_BTF_MODULES=n
 EOF
 
       # Reconcile config non-interactively (avoid piping `yes`, which trips pipefail)
@@ -162,6 +173,9 @@ in
   # Temporarily bypass NixOS kernel config assertions during bring-up of the vendor kernel.
   # We will re-enable after confirming the final .config satisfies all required flags.
   system.requiredKernelConfig = lib.mkForce [ ];
+  # Ensure our built U-Boot (u-boot.ext) is embedded into the FAT /boot for chainloading
+  khadas.ubootVim1s.enable = true;
+  khadas.ubootVim1s.embedInBoot = true;
 
 
   boot = {
