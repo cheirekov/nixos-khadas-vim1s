@@ -102,6 +102,12 @@ EOF
     let p = ../u-boot.bin.sd.bin.signed.new; in
     if builtins.pathExists p then p else null;
 
+  # Optional: prebuilt chainload U-Boot (u-boot.ext) placed at repo root.
+  # Use this to avoid compiling vendor U-Boot with a modern toolchain.
+  uBootExtPrebuilt =
+    let p = ../u-boot.ext; in
+    if builtins.pathExists p then p else null;
+
   dtbPackage = pkgs.stdenv.mkDerivation {
     pname = "kvim1s-dtb";
     version = "5.15-khadas";
@@ -175,7 +181,9 @@ in
   system.requiredKernelConfig = lib.mkForce [ ];
   # Do not build/embed U-Boot during kernel bring-up; avoid defconfig loops and rely on
   # existing SPI/eMMC loader or the signed SD blob (u-boot.bin.sd.bin.signed.new).
-  khadas.ubootVim1s.enable = true;
+  # Avoid building U-Boot for now (vendor tree fails with modern GCC). We still embed
+  # a u-boot.ext if provided at repo root (uBootExtPrebuilt) so chainload works.
+  khadas.ubootVim1s.enable = false;
   khadas.ubootVim1s.embedInBoot = true;
   khadas.ubootVim1s.defconfig = "kvim1s_defconfig";
 
@@ -245,12 +253,19 @@ in
     compressImage = true;
 
     # Place chainload-friendly U-Boot binary (u-boot.ext) onto the FAT /boot at image build time.
-    # This ensures existing Khadas U-Boot can chainload it before Linux boots.
-    populateRootCommands = lib.mkIf (config.khadas.ubootVim1s.enable && config.khadas.ubootVim1s.embedInBoot) (lib.mkAfter ''
-      if [ -e ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ]; then
-        install -Dm0644 ${config.system.build.ubootVim1s}/u-boot/u-boot.ext "$BOOT_ROOT/u-boot.ext"
-      fi
-    '');
+    # Prefer a prebuilt repo-root file to avoid toolchain incompatibilities; fall back to built one if available.
+    populateRootCommands = lib.mkIf config.khadas.ubootVim1s.embedInBoot (lib.mkAfter (
+      (lib.optionalString (uBootExtPrebuilt != null) ''
+        echo "Embedding prebuilt u-boot.ext from repository root"
+        install -Dm0644 ${uBootExtPrebuilt} "$BOOT_ROOT/u-boot.ext"
+      '') +
+      (lib.optionalString (config ? system && config.system ? build && config.system.build ? ubootVim1s) ''
+        if [ ! -e "$BOOT_ROOT/u-boot.ext" ] && [ -e ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ]; then
+          echo "Embedding built u-boot.ext from system.build.ubootVim1s"
+          install -Dm0644 ${config.system.build.ubootVim1s}/u-boot/u-boot.ext "$BOOT_ROOT/u-boot.ext"
+        fi
+      '')
+    ));
 
     # Post-process the built image to embed a signed U-Boot blob directly into the SD image, if provided.
     # This avoids relying on SPI/eMMC U-Boot and mirrors the common FIP/MBR dd flow (as used by nixos-generators).
