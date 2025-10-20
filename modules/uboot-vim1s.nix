@@ -28,37 +28,56 @@ let
       cp -r "$src" ./src
       chmod -R u+w ./src
       cd src
-      # Auto-detect a suitable defconfig from configs/ to avoid guessing and loops.
+
+      # Honor explicit defconfig from Nix option if provided
+      DEF_FROM_CFG=${lib.escapeShellArg (config.khadas.ubootVim1s.defconfig or "")}
       defcfg=""
-      if [ -d configs ]; then
-        defcfg="$(ls configs | grep -E '(^|/)k?vim1s.*_defconfig$' | head -n1 || true)"
-        if [ -z "$defcfg" ]; then
-          defcfg="$(ls configs | grep -E '(khadas|vim1|kvim).*_defconfig$' | head -n1 || true)"
+      if [ -n "$DEF_FROM_CFG" ]; then
+        defcfg="$DEF_FROM_CFG"
+      fi
+
+      # Auto-detect ONLY a VIM1S defconfig; do not fallback to other boards.
+      if [ -z "$defcfg" ]; then
+        if [ -d configs ]; then
+          # Match kvim1s_defconfig or khadas-vim1s_defconfig variants.
+          defcfg="$(ls configs | grep -E '(^|/)k?vim1s(_.*)?_defconfig$' | head -n1 || true)"
         fi
       fi
       if [ -z "$defcfg" ]; then
-        echo "No suitable defconfig for VIM1S found in Khadas U-Boot tree. Candidates (filtered):" >&2
+        echo "No VIM1S defconfig found (expected kvim1s_defconfig or khadas-vim1s_defconfig). Aborting." >&2
+        echo "Available Khadas/VIM defconfigs (for reference):" >&2
         if [ -d configs ]; then ls configs | grep -E '(khadas|vim)' >&2 || true; fi
         exit 1
       fi
       echo "Using U-Boot defconfig: $defcfg"
-      make "$defcfg"
-      make -j"$NIX_BUILD_CORES"
+
+      # Nix sandbox has no /bin; patch any hardcoded /bin/pwd to 'pwd'.
+      grep -RIl '/bin/pwd' . | xargs -r sed -i 's:/bin/pwd:pwd:g'
+
+      # Build out-of-tree into ./build to avoid Makefile mkdir/pwd issues.
+      make O=build "$defcfg"
+      make -j"$NIX_BUILD_CORES" O=build
       runHook postBuild
     '';
 
     installPhase = ''
       runHook preInstall
       mkdir -p "$out/u-boot"
-      # Copy common artifacts if they exist
+      # Prefer artifacts from O=build; fallback to src/ if present there.
       for f in u-boot.bin u-boot-nodtb.bin u-boot.itb u-boot.bin.sd.bin; do
-        if [ -f "src/$f" ]; then
+        if [ -f "build/$f" ]; then
+          install -Dm0644 "build/$f" "$out/u-boot/$f"
+        elif [ -f "src/$f" ]; then
           install -Dm0644 "src/$f" "$out/u-boot/$f"
         fi
       done
-      # Provide a chainload-friendly file name. If no better format exists, copy u-boot.bin as u-boot.ext
-      if [ -f "src/u-boot.itb" ]; then
+      # Provide a chainload-friendly file name. Prefer u-boot.itb, else u-boot.bin from build/ then src/
+      if [ -f "build/u-boot.itb" ]; then
+        install -Dm0644 "build/u-boot.itb" "$out/u-boot/u-boot.ext"
+      elif [ -f "src/u-boot.itb" ]; then
         install -Dm0644 "src/u-boot.itb" "$out/u-boot/u-boot.ext"
+      elif [ -f "build/u-boot.bin" ]; then
+        install -Dm0644 "build/u-boot.bin" "$out/u-boot/u-boot.ext"
       elif [ -f "src/u-boot.bin" ]; then
         install -Dm0644 "src/u-boot.bin" "$out/u-boot/u-boot.ext"
       fi
@@ -93,6 +112,12 @@ in
         This enables chainloading our U-Boot directly from the existing Khadas SPI/eMMC U-Boot.
         When false (default), the image won't depend on building U-Boot and will rely on the onboard U-Boot.
       '';
+    };
+    defconfig = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "kvim1s_defconfig";
+      description = "Override defconfig file name to use when building Khadas U-Boot (e.g., kvim1s_defconfig). If null, auto-detect a VIM1S defconfig from configs/.";
     };
   };
 
