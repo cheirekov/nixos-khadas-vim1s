@@ -173,9 +173,10 @@ in
   # Temporarily bypass NixOS kernel config assertions during bring-up of the vendor kernel.
   # We will re-enable after confirming the final .config satisfies all required flags.
   system.requiredKernelConfig = lib.mkForce [ ];
-  # Ensure our built U-Boot (u-boot.ext) is embedded into the FAT /boot for chainloading
-  khadas.ubootVim1s.enable = true;
-  khadas.ubootVim1s.embedInBoot = true;
+  # Do not build/embed U-Boot during kernel bring-up; avoid defconfig loops and rely on
+  # existing SPI/eMMC loader or the signed SD blob (u-boot.bin.sd.bin.signed.new).
+  khadas.ubootVim1s.enable = false;
+  khadas.ubootVim1s.embedInBoot = false;
 
 
   boot = {
