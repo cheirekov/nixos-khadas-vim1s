@@ -17,7 +17,7 @@ let
       swig
       python3
       pkg-config
-      openssl_1_1
+      openssl
       gnumake
       gcc
       pkgsCross.aarch64-multiplatform.stdenv.cc
@@ -129,10 +129,6 @@ let
   };
 in
 {
-   nixpkgs.config.permittedInsecurePackages = [
-      "openssl-1.1.1w"
-   ];
-
   options.khadas.ubootVim1s = {
     enable = lib.mkOption {
       type = lib.types.bool;
