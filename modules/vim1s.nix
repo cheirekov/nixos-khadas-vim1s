@@ -9,6 +9,11 @@ let
 
   overlayNames = [ "4k2k_fb" "i2cm_e" "i2s" "onewire" "panfrost" "pwm_f" "spdifout" "spi0" "uart_c" ];
 
+  # Optional: include a signed U-Boot blob from repo root (for embedding via sdImage.postBuildCommands)
+  uBootSigned =
+    let p = ../u-boot.bin.sd.bin.signed.new; in
+    if builtins.pathExists p then p else null;
+
   dtbPackage = pkgs.stdenv.mkDerivation {
     pname = "kvim1s-dtb";
     version = "5.15-khadas";
@@ -36,10 +41,10 @@ let
       overlay_dir='${dt-overlays}/overlays/vim1s/5.4'
       if [ -n "${builtins.concatStringsSep " " overlayNames}" ]; then
         overlays=""
-        for name in ${builtins.concatStringsSep " " overlayNames}; do
-          src="$overlay_dir/${name}.dts"
+        for ov in ${builtins.concatStringsSep " " overlayNames}; do
+          src="$overlay_dir/$ov.dts"
           if [ ! -f "$src" ]; then
-            echo "Overlay '$name' not found at $src" >&2
+            echo "Overlay '$ov' not found at $src" >&2
             exit 1
           fi
           # Preprocess and compile overlay to .dtbo
@@ -51,9 +56,9 @@ let
             -I ./common_drivers/include \
             -I ./common_drivers/arch/arm64/boot/dts \
             -I "$overlay_dir" \
-            "$src" > "${name}.pp.dts"
-          ${pkgs.dtc}/bin/dtc -I dts -O dtb -@ -o "${name}.dtbo" "${name}.pp.dts"
-          overlays="$overlays ${name}.dtbo"
+            "$src" > "$ov.pp.dts"
+          ${pkgs.dtc}/bin/dtc -I dts -O dtb -@ -o "$ov.dtbo" "$ov.pp.dts"
+          overlays="$overlays $ov.dtbo"
         done
         # Apply overlays in order onto the base DTB
         ${pkgs.dtc}/bin/fdtoverlay -i kvim1s.dtb -o kvim1s.merged.dtb $overlays
@@ -74,7 +79,7 @@ let
 in
 {
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
-
+  nixpkgs.config.allowUnfree = true;
   boot = {
     kernelPackages = kernelPkgs;
 
@@ -114,7 +119,7 @@ in
   };
 
   # Firmware (Wi-Fi/BT/etc.)
-  hardware.firmware = [ pkgs.linux-firmware ];
+  hardware.firmware = [ pkgs.armbian-firmware pkgs.linux-firmware ];
 
   # Filesystems we want in userspace/initrd
   boot.supportedFilesystems = [ "vfat" "ext4" "btrfs" "f2fs" ];
@@ -151,6 +156,16 @@ in
       if [ -e ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ]; then
         install -Dm0644 ${config.system.build.ubootVim1s}/u-boot/u-boot.ext "$BOOT_ROOT/u-boot.ext"
       fi
+    '');
+
+    # Post-process the built image to embed a signed U-Boot blob directly into the SD image, if provided.
+    # This avoids relying on SPI/eMMC U-Boot and mirrors the common FIP/MBR dd flow (as used by nixos-generators).
+    postBuildCommands = lib.mkIf (uBootSigned != null) (lib.mkAfter ''
+      echo "Embedding signed U-Boot into $img from ${uBootSigned}"
+      # Write MBR region
+      dd if=${uBootSigned} of=$img bs=1 count=444 conv=fsync,notrunc
+      # Write the rest of the image after the MBR
+      dd if=${uBootSigned} of=$img bs=512 skip=1 seek=1 conv=fsync,notrunc
     '');
   };
 
