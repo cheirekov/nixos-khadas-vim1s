@@ -7,6 +7,25 @@ let
     ln -s ${common_drivers} $out/common_drivers
   '';
 
+  # Build Khadas 5.15 kernel from vendor source using vendor defconfig.
+  # We intentionally start from kvims_defconfig (from common_drivers) instead of the Ubuntu config,
+  # because the provided config disables ARCH_MESON and is Android-GKI oriented, which is likely unsuitable for boot.
+  khadasKernel = pkgs.buildLinux {
+    version = "5.15-khadas";
+    modDirVersion = "5.15.0-khadas";
+    src = khadasSrc;
+    defconfig = "kvims_defconfig";
+    extraMeta.branch = "5.15";
+
+    # Ensure Make can find kvims_defconfig by linking it from common_drivers into arch/arm64/configs.
+    postUnpack = ''
+      if [ -f "$sourceRoot/common_drivers/arch/arm64/configs/kvims_defconfig" ]; then
+        ln -sf "$sourceRoot/common_drivers/arch/arm64/configs/kvims_defconfig" \
+               "$sourceRoot/arch/arm64/configs/kvims_defconfig"
+      fi
+    '';
+  };
+
   overlayNames = [ "4k2k_fb" "i2cm_e" "i2s" "onewire" "panfrost" "pwm_f" "spdifout" "spi0" "uart_c" ];
 
   # Optional: include a signed U-Boot blob from repo root (for embedding via sdImage.postBuildCommands)
@@ -74,8 +93,8 @@ let
     '';
   };
 
-  # Use 5.15 LTS for better compatibility with Khadas VIM1S vendor DTB
-  kernelPkgs = pkgs.linuxPackages_5_15;
+  # Use vendor Khadas 5.15 kernel packages built above
+  kernelPkgs = pkgs.linuxPackagesFor khadasKernel;
 in
 {
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
