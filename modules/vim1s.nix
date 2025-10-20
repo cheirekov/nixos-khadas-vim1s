@@ -197,18 +197,11 @@ in
     ];
 
     # Conservative initrd modules; harmless if not present.
-    initrd.availableKernelModules = [
-      "mmc_block"
-      "meson_gx_mmc"
-      "usb_storage"
-      "uas"
-      "xhci_hcd"
-      "phy-meson-g12a-usb2"
-      "phy-meson-g12a-usb3-pcie"
-      "dwc3"
-      "dwc3-meson-g12a"
-    ];
-    initrd.kernelModules = [ ];
+    # Kernel was built effectively monolithic (no .ko installed). Avoid initrd
+    # module-closure failures by not expecting any modules during bring-up.
+    initrd.includeDefaultModules = lib.mkForce false;
+    initrd.availableKernelModules = lib.mkForce [ ];
+    initrd.kernelModules = lib.mkForce [ ];
   };
 
   # Device tree: install our vendor-built DTB and reference it
