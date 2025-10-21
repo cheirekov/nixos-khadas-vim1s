@@ -80,15 +80,26 @@ let
       # Soften diagnostics for ancient vendor tree on modern GCC.
       # Enable FIT support in host tools to satisfy image_* and fit_* symbols
       # Build host tools with FIT support but WITHOUT signature paths (avoid OpenSSL/fit signature code)
-      export HOSTCFLAGS="''${HOSTCFLAGS:-} -Wno-error -Wno-array-bounds -DCONFIG_FIT -UCONFIG_FIT_SIGNATURE -DCONFIG_SHA256 -DCONFIG_SHA1"
+      export HOSTCFLAGS="''${HOSTCFLAGS:-} -Wno-error -Wno-array-bounds -DCONFIG_FIT -DCONFIG_FIT_SIGNATURE -DCONFIG_FIT_SIGNATURE_MAX_SIZE=0x1000000 -DCONFIG_SHA256 -DCONFIG_SHA1"
       export KCFLAGS="''${KCFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
-      export KBUILD_CFLAGS="''${KBUILD_CFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch -DCONFIG_FIT -UCONFIG_FIT_SIGNATURE -DCONFIG_SHA256 -DCONFIG_SHA1"
+      export KBUILD_CFLAGS="''${KBUILD_CFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch -DCONFIG_FIT -DCONFIG_FIT_SIGNATURE -DCONFIG_FIT_SIGNATURE_MAX_SIZE=0x1000000 -DCONFIG_SHA256 -DCONFIG_SHA1"
       export CFLAGS="''${CFLAGS:-} -Wno-error"
       # Host linker occasionally drops needed objects; disable --as-needed.
       export LDFLAGS="''${LDFLAGS:-} -Wl,--no-as-needed"
 
       # Build out-of-tree into ./build to avoid Makefile mkdir/pwd issues.
       make O=build "$defcfg"
+
+      # Force-enable FIT + signature in U-Boot Kconfig so host tools link required objects.
+      for opt in CONFIG_FIT CONFIG_FIT_SIGNATURE CONFIG_SHA1 CONFIG_SHA256; do
+        if grep -q "^$opt=" build/.config; then
+          sed -i "s/^$opt=.*/$opt=y/" build/.config
+        else
+          echo "$opt=y" >> build/.config
+        fi
+      done
+      make O=build olddefconfig
+
       make -j"$NIX_BUILD_CORES" O=build HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS"
       runHook postBuild
     '';
