@@ -80,9 +80,6 @@ let
       # Soften diagnostics for ancient vendor tree on modern GCC.
       # Enable FIT support in host tools to satisfy image_* and fit_* symbols
       # Build host tools with FIT support but WITHOUT signature paths (avoid OpenSSL/fit signature code)
-      export HOSTCFLAGS="''${HOSTCFLAGS:-} -Wno-error -Wno-array-bounds -DCONFIG_FIT -DCONFIG_FIT_SIGNATURE -DCONFIG_FIT_SIGNATURE_MAX_SIZE=0x1000000 -DCONFIG_SHA256 -DCONFIG_SHA1"
-      export KCFLAGS="''${KCFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch"
-      export KBUILD_CFLAGS="''${KBUILD_CFLAGS:-} -Wno-error -Wno-array-bounds -Wno-error=enum-int-mismatch -DCONFIG_FIT -DCONFIG_FIT_SIGNATURE -DCONFIG_FIT_SIGNATURE_MAX_SIZE=0x1000000 -DCONFIG_SHA256 -DCONFIG_SHA1"
       export CFLAGS="''${CFLAGS:-} -Wno-error"
       # Host linker occasionally drops needed objects; disable --as-needed.
       export LDFLAGS="''${LDFLAGS:-} -Wl,--no-as-needed"
@@ -100,7 +97,10 @@ let
       done
       make O=build olddefconfig
 
-      make -j"$NIX_BUILD_CORES" O=build HOSTCFLAGS="$HOSTCFLAGS" KCFLAGS="$KCFLAGS" KBUILD_CFLAGS="$KBUILD_CFLAGS"
+      # Build host tools first to satisfy FIT linkage
+      make O=build tools
+
+      make -j"$NIX_BUILD_CORES" O=build
       runHook postBuild
     '';
 
