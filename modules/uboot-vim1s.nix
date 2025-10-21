@@ -78,23 +78,29 @@ let
       grep -RIl -- '-Werror' . | xargs -r sed -i 's/-Werror//g'
 
       # Soften diagnostics for ancient vendor tree on modern GCC.
-      # Enable FIT support in host tools to satisfy image_* and fit_* symbols
-      # Build host tools with FIT support but WITHOUT signature paths (avoid OpenSSL/fit signature code)
       export CFLAGS="''${CFLAGS:-} -Wno-error"
+      # Ensure host tools compile even if libfdt lacks fdt_check_full(): map it to header check.
+      export HOSTCFLAGS="''${HOSTCFLAGS:-} -Wno-error -Dfdt_check_full=fdt_check_header"
       # Host linker occasionally drops needed objects; disable --as-needed.
       export LDFLAGS="''${LDFLAGS:-} -Wl,--no-as-needed"
 
       # Build out-of-tree into ./build to avoid Makefile mkdir/pwd issues.
       make O=build "$defcfg"
 
-      # Force-enable FIT + signature in U-Boot Kconfig so host tools link required objects.
-      for opt in CONFIG_FIT CONFIG_FIT_SIGNATURE CONFIG_SHA1 CONFIG_SHA256; do
+      # Force-enable FIT in U-Boot Kconfig so host tools link required objects (without signatures).
+      for opt in CONFIG_FIT CONFIG_SHA1 CONFIG_SHA256; do
         if grep -q "^$opt=" build/.config; then
           sed -i "s/^$opt=.*/$opt=y/" build/.config
         else
           echo "$opt=y" >> build/.config
         fi
       done
+      # Explicitly disable FIT signature to avoid extra OpenSSL/signature code paths while bringing up tools
+      if grep -q '^CONFIG_FIT_SIGNATURE=' build/.config; then
+        sed -i 's/^CONFIG_FIT_SIGNATURE=.*/# CONFIG_FIT_SIGNATURE is not set/' build/.config
+      else
+        echo '# CONFIG_FIT_SIGNATURE is not set' >> build/.config
+      fi
 
       # Disable FIT full-check to avoid dependency on fdt_check_full (not present in vendor libfdt)
       if grep -q '^CONFIG_FIT_FULL_CHECK=' build/.config; then
