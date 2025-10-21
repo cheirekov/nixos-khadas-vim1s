@@ -1,0 +1,15 @@
+# Disable Ubuntu-specific helpers and force clean extlinux flow
+CONFIG_ENV_IS_NOWHERE=y
+# CONFIG_ENV_IS_IN_FAT is not set
+# CONFIG_ENV_IS_IN_MMC is not set
+# CONFIG_CMD_CFGLOAD is not set
+# CONFIG_CMD_INI is not set
+
+# Keep standard distro/extlinux boot
+CONFIG_DISTRO_DEFAULTS=y
+CONFIG_CMD_PXE=y
+CONFIG_CMD_EXT2=y
+CONFIG_CMD_EXT4=y
+CONFIG_CMD_FAT=y
+CONFIG_FS_EXT4=y
+CONFIG_FS_FAT=y

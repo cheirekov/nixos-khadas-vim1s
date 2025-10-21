@@ -184,8 +184,8 @@ in
   # Avoid building U-Boot for now (vendor tree fails with modern GCC). We still embed
   # a u-boot.ext if provided at repo root (uBootExtPrebuilt) so chainload works.
   # Avoid building vendor U-Boot for now; rely on signed SD blob embedding to unblock image build.
-  khadas.ubootVim1s.enable = true;
-  khadas.ubootVim1s.embedInBoot = true;
+  khadas.ubootVim1s.enable = false;
+  khadas.ubootVim1s.embedInBoot = false;
   khadas.ubootVim1s.defconfig = "kvim1s_defconfig";
 
 
