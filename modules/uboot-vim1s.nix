@@ -95,6 +95,14 @@ let
           echo "$opt=y" >> build/.config
         fi
       done
+
+      # Disable FIT full-check to avoid dependency on fdt_check_full (not present in vendor libfdt)
+      if grep -q '^CONFIG_FIT_FULL_CHECK=' build/.config; then
+        sed -i 's/^CONFIG_FIT_FULL_CHECK=.*/# CONFIG_FIT_FULL_CHECK is not set/' build/.config
+      else
+        echo '# CONFIG_FIT_FULL_CHECK is not set' >> build/.config
+      fi
+
       make O=build olddefconfig
 
       # Build host tools first to satisfy FIT linkage
