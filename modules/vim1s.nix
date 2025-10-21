@@ -184,8 +184,8 @@ in
   # Avoid building U-Boot for now (vendor tree fails with modern GCC). We still embed
   # a u-boot.ext if provided at repo root (uBootExtPrebuilt) so chainload works.
   # Avoid building vendor U-Boot for now; rely on signed SD blob embedding to unblock image build.
-  khadas.ubootVim1s.enable = false;
-  khadas.ubootVim1s.embedInBoot = false;
+  khadas.ubootVim1s.enable = true;
+  khadas.ubootVim1s.embedInBoot = true;
   khadas.ubootVim1s.defconfig = "kvim1s_defconfig";
 
 
@@ -254,8 +254,8 @@ in
     compressImage = true;
 
     # Place chainload-friendly U-Boot binary (u-boot.ext) onto the FAT /boot at image build time.
-    # Prefer a prebuilt repo-root file to avoid toolchain incompatibilities; fall back to built one if available.
-    populateRootCommands = lib.mkIf config.khadas.ubootVim1s.embedInBoot (lib.mkAfter (
+    # Do this in populateBootCommands so $BOOT_ROOT is guaranteed to be set (separate from ext4 root population).
+    populateBootCommands = lib.mkIf config.khadas.ubootVim1s.embedInBoot (lib.mkAfter (
       (lib.optionalString (uBootExtPrebuilt != null) ''
         echo "Embedding prebuilt u-boot.ext from repository root"
         install -Dm0644 ${uBootExtPrebuilt} "$BOOT_ROOT/u-boot.ext"
@@ -267,6 +267,9 @@ in
         fi
       '')
     ));
+
+    # No boot embed work in populateRootCommands; keep empty to avoid writing to / during ext4 population.
+    populateRootCommands = lib.mkAfter "";
 
     # Post-process the built image to embed a signed U-Boot blob directly into the SD image, if provided.
     # This avoids relying on SPI/eMMC U-Boot and mirrors the common FIP/MBR dd flow (as used by nixos-generators).
