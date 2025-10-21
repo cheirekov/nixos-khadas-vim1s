@@ -271,15 +271,33 @@ in
     # No boot embed work in populateRootCommands; keep empty to avoid writing to / during ext4 population.
     populateRootCommands = lib.mkAfter "";
 
-    # Post-process the built image to embed a signed U-Boot blob directly into the SD image, if provided.
-    # This avoids relying on SPI/eMMC U-Boot and mirrors the common FIP/MBR dd flow (as used by nixos-generators).
-    postBuildCommands = lib.mkIf (uBootSigned != null) (lib.mkAfter ''
-      echo "Embedding signed U-Boot into $img from ${uBootSigned}"
-      # Write MBR region
-      dd if=${uBootSigned} of=$img bs=1 count=444 conv=fsync,notrunc
-      # Write the rest of the image after the MBR
-      dd if=${uBootSigned} of=$img bs=512 skip=1 seek=1 conv=fsync,notrunc
-    '');
+    # Post-process: (1) optionally embed a signed U‑Boot blob into the SD image's MBR area
+    # (2) optionally embed u-boot.ext into the FAT boot partition using mtools without mounting.
+    postBuildCommands = lib.mkAfter (
+      (lib.optionalString (uBootSigned != null) ''
+        echo "Embedding signed U-Boot into $img from ${uBootSigned}"
+        # Write MBR region
+        dd if=${uBootSigned} of=$img bs=1 count=444 conv=fsync,notrunc
+        # Write the rest of the image after the MBR
+        dd if=${uBootSigned} of=$img bs=512 skip=1 seek=1 conv=fsync,notrunc
+      '')
+      +
+      (lib.optionalString config.khadas.ubootVim1s.embedInBoot (
+        (lib.optionalString (uBootExtPrebuilt != null) ''
+          echo "Embedding prebuilt u-boot.ext into FAT boot partition"
+          BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
+          ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" ${uBootExtPrebuilt} ::/u-boot.ext
+        '')
+        +
+        (lib.optionalString (config ? system && config.system ? build && config.system.build ? ubootVim1s) ''
+          if [ -e ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ]; then
+            echo "Embedding built u-boot.ext from system.build.ubootVim1s into FAT boot partition"
+            BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
+            ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ::/u-boot.ext
+          fi
+        '')
+      ))
+    );
   };
 
   # Handy tools onboard
