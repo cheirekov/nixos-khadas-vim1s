@@ -17,6 +17,8 @@ let
       openssl
       gnumake
       gcc
+      git
+      inetutils
       pkgsCross.aarch64-multiplatform.stdenv.cc
     ];
 
@@ -121,7 +123,12 @@ let
       # Build host tools first to satisfy FIT linkage
       make O=build tools
 
-      make -j"$NIX_BUILD_CORES" O=build
+      # Build only the U-Boot payloads we need for chainloading to avoid vendor extra targets (e.g. acs.bin)
+      # Try to produce u-boot.itb; if that fails, fall back to u-boot.bin.
+      if ! make -j"$NIX_BUILD_CORES" O=build u-boot.itb; then
+        make -j"$NIX_BUILD_CORES" O=build u-boot.bin
+      fi
+
       runHook postBuild
     '';
 
