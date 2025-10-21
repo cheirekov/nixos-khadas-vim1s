@@ -105,6 +105,13 @@ let
 
       make O=build olddefconfig
 
+      # Work around missing fdt_check_full() in vendor tools/libfdt by using header-only check.
+      # Some khadas-vims-v2019.01 trees reference fdt_check_full in tools/common/image-fit.c
+      # but the bundled libfdt does not provide it. Replace with fdt_check_header.
+      if grep -RIl 'fdt_check_full' tools >/dev/null 2>&1; then
+        grep -RIl 'fdt_check_full' tools | xargs -r sed -i 's/fdt_check_full/fdt_check_header/g'
+      fi
+
       # Build host tools first to satisfy FIT linkage
       make O=build tools
 
