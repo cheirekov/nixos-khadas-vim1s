@@ -123,11 +123,8 @@ let
       # Build host tools first to satisfy FIT linkage
       make O=build tools
 
-      # Build only the U-Boot payloads we need for chainloading to avoid vendor extra targets (e.g. acs.bin)
-      # Try to produce u-boot.itb; if that fails, fall back to u-boot.bin.
-      if ! make -j"$NIX_BUILD_CORES" O=build u-boot.itb; then
-        make -j"$NIX_BUILD_CORES" O=build u-boot.bin
-      fi
+      # Build only the U-Boot payload we need for chainloading; avoid u-boot.itb to skip dtc -E issues.
+      make -j"$NIX_BUILD_CORES" O=build u-boot.bin
 
       runHook postBuild
     '';
@@ -143,15 +140,15 @@ let
           install -Dm0644 "src/$f" "$out/u-boot/$f"
         fi
       done
-      # Provide a chainload-friendly file name. Prefer u-boot.itb, else u-boot.bin from build/ then src/
-      if [ -f "build/u-boot.itb" ]; then
-        install -Dm0644 "build/u-boot.itb" "$out/u-boot/u-boot.ext"
-      elif [ -f "src/u-boot.itb" ]; then
-        install -Dm0644 "src/u-boot.itb" "$out/u-boot/u-boot.ext"
-      elif [ -f "build/u-boot.bin" ]; then
+      # Provide a chainload-friendly file name. Prefer u-boot.bin (reliable), fallback to u-boot.itb if present.
+      if [ -f "build/u-boot.bin" ]; then
         install -Dm0644 "build/u-boot.bin" "$out/u-boot/u-boot.ext"
       elif [ -f "src/u-boot.bin" ]; then
         install -Dm0644 "src/u-boot.bin" "$out/u-boot/u-boot.ext"
+      elif [ -f "build/u-boot.itb" ]; then
+        install -Dm0644 "build/u-boot.itb" "$out/u-boot/u-boot.ext"
+      elif [ -f "src/u-boot.itb" ]; then
+        install -Dm0644 "src/u-boot.itb" "$out/u-boot/u-boot.ext"
       fi
       runHook postInstall
     '';
