@@ -1,10 +1,7 @@
 { lib, pkgs, config, uboot-khadas, ... }:
 
 let
-  # Use an older host compiler to build legacy vendor U-Boot tools cleanly.
-  hostStdenv = pkgs.overrideCC pkgs.stdenv pkgs.gcc12;
-
-  ubootVim1s = hostStdenv.mkDerivation {
+  ubootVim1s = pkgs.stdenv.mkDerivation {
     pname = "uboot-khadas-vim1s";
     version = "v2019.01-khadas";
     src = uboot-khadas;
