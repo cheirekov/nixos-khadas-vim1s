@@ -253,20 +253,6 @@ in
     imageBaseName = "nixos-vim1s";
     compressImage = true;
 
-    # Place chainload-friendly U-Boot binary (u-boot.ext) onto the FAT /boot at image build time.
-    # Do this in populateBootCommands so $BOOT_ROOT is guaranteed to be set (separate from ext4 root population).
-    populateBootCommands = lib.mkIf config.khadas.ubootVim1s.embedInBoot (lib.mkAfter (
-      (lib.optionalString (uBootExtPrebuilt != null) ''
-        echo "Embedding prebuilt u-boot.ext from repository root"
-        install -Dm0644 ${uBootExtPrebuilt} "$BOOT_ROOT/u-boot.ext"
-      '') +
-      (lib.optionalString (config ? system && config.system ? build && config.system.build ? ubootVim1s) ''
-        if [ ! -e "$BOOT_ROOT/u-boot.ext" ] && [ -e ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ]; then
-          echo "Embedding built u-boot.ext from system.build.ubootVim1s"
-          install -Dm0644 ${config.system.build.ubootVim1s}/u-boot/u-boot.ext "$BOOT_ROOT/u-boot.ext"
-        fi
-      '')
-    ));
 
     # No boot embed work in populateRootCommands; keep empty to avoid writing to / during ext4 population.
     populateRootCommands = lib.mkAfter "";
