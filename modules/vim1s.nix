@@ -254,8 +254,20 @@ in
     compressImage = true;
 
 
-    # No boot embed work in populateRootCommands; keep empty to avoid writing to / during ext4 population.
-    populateRootCommands = lib.mkAfter "";
+    # Populate ext4 root: install a copy of the merged DTB under /boot/dtb so extlinux
+    # references a DTB path with no adjacent .overlay.env (avoids vendor runtime helper).
+    # Patch extlinux.conf FDT line to point to this DTB; remove any FDTDIR.
+    populateRootCommands = lib.mkAfter ''
+      mkdir -p "$ROOT/boot/dtb/amlogic"
+      install -Dm0644 ${dtbPackage}/amlogic/kvim1s.dtb "$ROOT/boot/dtb/amlogic/kvim1s.dtb"
+
+      if [ -f "$ROOT/boot/extlinux/extlinux.conf" ]; then
+        # Force FDT to /boot/dtb/amlogic/kvim1s.dtb on ext4 (partition 2)
+        sed -i -E 's#^([[:space:]]*FDT)[[:space:]].*$#\1 /boot/dtb/amlogic/kvim1s.dtb#' "$ROOT/boot/extlinux/extlinux.conf"
+        # Ensure no FDTDIR line remains
+        sed -i -E '/^[[:space:]]*FDTDIR[[:space:]]/d' "$ROOT/boot/extlinux/extlinux.conf"
+      fi
+    '';
 
     # Post-process: (1) optionally embed a signed U‑Boot blob into the SD image's MBR area
     # (2) optionally embed u-boot.ext into the FAT boot partition using mtools without mounting.
@@ -273,6 +285,19 @@ in
           echo "Embedding prebuilt u-boot.ext into FAT boot partition"
           BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
           ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" ${uBootExtPrebuilt} ::/u-boot.ext
+
+          # Write a neutral uEnv.txt to force clean extlinux boot and disable overlay helpers.
+          tmp_uenv="$(mktemp)"
+          cat > "$tmp_uenv" <<'EOFUENV'
+bootcmd=sysboot mmc 0:1 any /boot/extlinux/extlinux.conf
+fdt_overlays=
+overlays=
+overlayfs=
+overlay_profile=
+preboot=
+EOFUENV
+          ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" "$tmp_uenv" ::/uEnv.txt
+          rm -f "$tmp_uenv"
         '')
         +
         (lib.optionalString (config ? system && config.system ? build && config.system.build ? ubootVim1s) ''
@@ -280,9 +305,40 @@ in
             echo "Embedding built u-boot.ext from system.build.ubootVim1s into FAT boot partition"
             BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
             ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ::/u-boot.ext
+
+            # Write a neutral uEnv.txt to force clean extlinux boot and disable overlay helpers.
+            tmp_uenv="$(mktemp)"
+            cat > "$tmp_uenv" <<'EOFUENV'
+bootcmd=sysboot mmc 0:1 any /boot/extlinux/extlinux.conf
+fdt_overlays=
+overlays=
+overlayfs=
+overlay_profile=
+preboot=
+EOFUENV
+            ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" "$tmp_uenv" ::/uEnv.txt
+            rm -f "$tmp_uenv"
           fi
         '')
       ))
+      +
+      ''
+        # Always write a neutral uEnv.txt on the FAT partition to force clean sysboot
+        # to extlinux on partition 2 and disable overlay/preboot helpers. Do this
+        # unconditionally so it exists even when we don't embed u-boot.ext.
+        BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
+        tmp_uenv="$(mktemp)"
+        cat > "$tmp_uenv" <<'EOFUENV'
+bootcmd=sysboot mmc 0:2 any /boot/extlinux/extlinux.conf
+fdt_overlays=
+overlays=
+overlayfs=
+overlay_profile=
+preboot=
+EOFUENV
+        ${pkgs.mtools}/bin/mcopy -o -i "$img@@$BOOT_START" "$tmp_uenv" ::/uEnv.txt
+        rm -f "$tmp_uenv"
+      ''
     );
   };
 

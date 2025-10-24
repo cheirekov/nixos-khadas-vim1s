@@ -1,0 +1,6 @@
+bootcmd=echo Booting NixOS direct...; if test -z "${kernel_addr_r}"; then setenv kernel_addr_r 0x1080000; fi; if test -z "${ramdisk_addr_r}"; then setenv ramdisk_addr_r 0x5000000; fi; if test -z "${fdt_addr_r}"; then setenv fdt_addr_r 0x1000000; fi; mmc dev 0; ext4load mmc 0:2 ${kernel_addr_r} /boot/nixos/fh6ar59a03gnsclg51m24bk9byyg90lg-linux-5.15.137-Image; ext4load mmc 0:2 ${ramdisk_addr_r} /boot/nixos/wkx1001j05nfmcjcx2s1mw9ql1ibdzbp-initrd-linux-5.15.137-initrd; ext4load mmc 0:2 ${fdt_addr_r} /boot/nixos/ikkzqsd6f8hlqwiwbx54d3avq1g6q6p1-kvim1s-dtb-5.15-khadas/amlogic/kvim1s.dtb; setenv bootargs 'init=/nix/store/by1hdd31x15zwaz6ivcj50v1irzbwjd5-nixos-system-nixos-sd-card-25.05.20251019.33c6dca/init console=ttyS0,115200n8 console=ttyAMA0,115200n8 console=tty0 console=ttyS0,921600n8 console=ttyAML0,115200n8 root=LABEL=NIXOS_SD rootfstype=ext4 rootdelay=3 nohibernate loglevel=7 lsm=landlock,yama,bpf'; booti ${kernel_addr_r} ${ramdisk_addr_r} ${fdt_addr_r}
+fdt_overlays=
+overlays=
+overlayfs=
+overlay_profile=
+preboot=
