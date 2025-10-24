@@ -225,7 +225,6 @@ in
     initrd.includeDefaultModules = lib.mkForce false;
     initrd.availableKernelModules = lib.mkForce [ ];
     initrd.kernelModules = lib.mkForce [ ];
-    initrd.lvm.enable = lib.mkForce false;
   };
 
   # Device tree: install our vendor-built DTB and reference it
