@@ -208,6 +208,36 @@ in
 
     # We generate extlinux.conf ourselves in sdImage.populateRootCommands.
     loader.generic-extlinux-compatible.enable = lib.mkForce false;
+    # Provide a custom populateCmd to satisfy sd-image-aarch64 which expects it.
+    # This script writes into the provided -d DEST directory inside the image build
+    # environment (never touches host /boot), and creates a minimal extlinux setup.
+    loader.generic-extlinux-compatible.populateCmd = lib.mkForce (pkgs.writeShellScript "populate-extlinux-vim1s" ''
+      set -eu
+      toplevel=""
+      dest=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          -c) toplevel="$2"; shift 2;;
+          -d) dest="$2"; shift 2;;
+          *) shift;;
+        esac
+      done
+      : "${dest:?missing -d DEST}"
+      mkdir -p "$dest/extlinux" "$dest/dtb/amlogic"
+      cp -f ${khadasKernel}/Image "$dest/Image"
+      cp -f ${config.system.build.initialRamdisk}/initrd "$dest/initrd"
+      cp -f ${dtbPackage}/amlogic/kvim1s.dtb "$dest/dtb/amlogic/kvim1s.dtb"
+      cat > "$dest/extlinux/extlinux.conf" <<'EOFEXT'
+DEFAULT NixOS
+TIMEOUT 5
+
+LABEL NixOS
+LINUX /boot/Image
+INITRD /boot/initrd
+FDT /boot/dtb/amlogic/kvim1s.dtb
+APPEND init=${config.system.build.toplevel}/init console=ttyAML0,115200n8 console=tty0 earlycon=meson,uart,mmio32,0xfe07a000,115200n8 keep_bootcon initcall_debug clk_ignore_unused printk.time=1 no_console_suspend root=LABEL=NIXOS_SD rootfstype=ext4 rootdelay=10
+EOFEXT
+    '');
 
     # Root label is provided by the sd-image module. Serial console for Amlogic is usually ttyAML0.
     kernelParams = [
