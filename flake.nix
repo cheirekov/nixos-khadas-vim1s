@@ -55,8 +55,8 @@ extra-trusted-public-keys = "nau:HISII/VSRjn+q5/T9Nrue5UmUU66qjppqCC1DEHuQic=";
               system = "aarch64-linux";
               specialArgs = { inherit kernel-khadas common_drivers dt-overlays uboot-khadas; };
               modules = [
-                ./modules/vim1s_2.nix
-                #./modules/uboot-vim1s.nix
+                ./modules/vim1s.nix
+                ./modules/uboot-vim1s.nix
                 # Standard AArch64 SD image generator (creates a VFAT /boot + ext4 root).
                 ({ modulesPath, ... }: { imports = [ (modulesPath + "/installer/sd-card/sd-image-aarch64.nix") ]; })
               ];
