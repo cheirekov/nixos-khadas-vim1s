@@ -1,0 +1,12 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    /* Disable the OP-TEE node found at top-level: /optee */
+    fragment@0 {
+        target-path = "/optee";
+        __overlay__ {
+            status = "disabled";
+        };
+    };
+};

@@ -74,6 +74,19 @@ CONFIG_DEBUG_INFO_DWARF4=y
 # CONFIG_DEBUG_INFO_DWARF5 is not set
 CONFIG_DEBUG_INFO_BTF=n
 CONFIG_DEBUG_INFO_BTF_MODULES=n
+
+# Support NixOS initrd compression (ZSTD used by default)
+CONFIG_RD_ZSTD=y
+CONFIG_RD_GZIP=y
+CONFIG_RD_LZ4=y
+
+# Device-mapper (LVM) support in kernel to avoid initrd DM errors
+CONFIG_MD=y
+CONFIG_BLK_DEV_DM=y
+
+# Expose kernel config for verification
+CONFIG_IKCONFIG=y
+CONFIG_IKCONFIG_PROC=y
 EOF
 
       # Reconcile config non-interactively (avoid piping `yes`, which trips pipefail)
@@ -212,6 +225,7 @@ in
     initrd.includeDefaultModules = lib.mkForce false;
     initrd.availableKernelModules = lib.mkForce [ ];
     initrd.kernelModules = lib.mkForce [ ];
+    initrd.lvm.enable = lib.mkForce false;
   };
 
   # Device tree: install our vendor-built DTB and reference it

@@ -136,6 +136,123 @@ Troubleshooting
   - Try one-shot boot: sysboot mmc 1:1 any /boot/extlinux/extlinux.conf.
   - Inspect and clear suspicious env: printenv fdt_overlays overlays overlayfs overlay_profile; setenv them empty if necessary.
 
+OP‑TEE and DT overlay issues (std_smc_entry:186 Bad arg address, FDT_ERR_BADMAGIC)
+
+- Symptoms seen on VIM1S with Ubuntu U‑Boot + vendor DTB:
+  - E/TC: std_smc_entry:186 Bad arg address 0xXXXXXXXX
+  - failed on fdt_overlay_apply(): FDT_ERR_NOTFOUND then libfdt fdt_check_header(): FDT_ERR_BADMAGIC and “Could not find a valid device tree”
+- Causes:
+  - OP‑TEE reserved-memory and shared memory mismatch between DTB and BL32 firmware; aggravated by KASLR or FF‑A transport.
+  - U‑Boot’s runtime overlay helper applying an overlay whose target-path doesn’t exist in the base DTB, leaving the FDT in a bad state.
+
+Recommended recovery and workarounds
+
+1) Stabilize extlinux boot
+- In /boot/extlinux/extlinux.conf:
+  - Add FDT pointing to the exact DTB you want:
+    FDT /boot/dtb/amlogic/kvim1s.dtb
+  - On APPEND, add bring-up params:
+    - ignore_loglevel earlycon=meson,uartao,0xff803000 nokaslr optee=off optee.disable=1 arm_ffa.disable=1
+- If overlays fail, temporarily disable runtime overlays:
+  - Edit /boot/dtb/amlogic/kvim1s.dtb.overlay.env and set: overlays=
+  - Note: After a failed overlay apply, you may see FDT_ERR_BADMAGIC. Clearing overlays and booting with an explicit FDT usually recovers.
+
+2) Disable OP‑TEE from DT (clean approach)
+- First, discover the exact node names in your DTB:
+  - dtc -I dtb -O dts -o kvim1s.dts /boot/dtb/amlogic/kvim1s.dtb
+  - Inspect:
+    - sed -n '/^firmware {/,/^};/p' kvim1s.dts
+    - sed -n '/^reserved-memory {/,/^};/p' kvim1s.dts
+  - Common nodes are /firmware/optee (or arm,tos/tee@...) and /reserved-memory/optee_shm (names vary by vendor tree).
+- Create a tiny overlay to disable those nodes (update target-paths to match your DTB):
+
+  /dts-v1/;
+  /plugin/;
+  / {
+    fragment@0 {
+      target-path = "/firmware/optee";   // adjust to your actual path
+      __overlay__ { status = "disabled"; };
+    };
+    fragment@1 {
+      target-path = "/reserved-memory/optee_shm"; // adjust if different
+      __overlay__ { status = "disabled"; };
+    };
+  };
+
+- Compile and place:
+  - dtc -@ -I dts -O dtb -o disable-optee.dtbo disable-optee.dts
+  - Copy to: /boot/dtb/amlogic/kvim1s.dtb.overlays/disable-optee.dtbo
+  - In kvim1s.dtb.overlay.env set (names without extension recommended): overlays=panfrost disable-optee
+- Reboot. If OP‑TEE errors vanish, you can later re-enable OP‑TEE by switching to the vendor 5.15.137 kernel + matching DT or by fixing reserved-memory to BL32 expectations.
+
+3) Pre-merge overlays offline (robust)
+- Avoid runtime overlay fragility by pre-merging on a host:
+  - fdtoverlay -p 65536 -i kvim1s.dtb -o kvim1s-merged.dtb disable-optee.dtbo panfrost.dtbo
+  - Replace the DTB on the boot partition (or point FDT at the merged file). The -p 65536 adds padding for later edits.
+
+4) One-shot U‑Boot DT surgery (for quick verification)
+- Interrupt U‑Boot, load kernel/initrd/dtb, then:
+  - fdt addr ${fdt_addr_r}; fdt resize 65536
+  - fdt rm /firmware/optee; fdt rm /firmware/optee@0; fdt rm /firmware/arm,tos
+  - fdt rm /reserved-memory/optee_shm; fdt rm /reserved-memory/tee-shmem; fdt rm /reserved-memory/secure-memory; fdt rm /reserved-memory/secmon@0
+  - setenv bootargs '... ignore_loglevel earlycon=meson,uartao,0xff803000 nokaslr arm_ffa.disable=1 optee=off optee.disable=1'
+  - booti ${kernel_addr_r} ${ramdisk_addr_r} ${fdt_addr_r}
+
+Notes
+- Mixing mainline 5.15 and a vendor DTB/firmware commonly trips OP‑TEE validation. The vendor 5.15.137 kernel plus matching DT is recommended if OP‑TEE must be enabled.
+- If using Ubuntu U‑Boot, prefer an explicit FDT in extlinux and keep overlays minimal and correct. A neutral u-boot.ext chainloader avoids Ubuntu’s env/overlay helpers at runtime.
+
+Bring-up status (2025-10-24)
+
+- Goal achieved so far:
+  - Clean extlinux boot with explicit FDT path. Avoids Ubuntu runtime overlay helpers.
+  - OP-TEE boot trap resolved: OP-TEE node disabled via DT overlay; no more std_smc_entry Bad arg address.
+  - Stable UART logging: 
+    - earlycon=meson,uart,mmio32,0xfe07a000,115200n8
+    - console=ttyAML0,115200n8 console=tty0
+    - Optional DT overlay forces chosen.stdout-path to serial0:115200n8.
+  - Initrd fix for vendor kernel: enabled ZSTD decompressor so NixOS initrd (ZSTD) unpacks correctly.
+    - Kernel config additions:
+      - CONFIG_RD_ZSTD=y
+      - CONFIG_RD_GZIP=y
+      - CONFIG_RD_LZ4=y
+      - CONFIG_IKCONFIG=y
+      - CONFIG_IKCONFIG_PROC=y
+    - Silence LVM/DM noise in stage-1:
+      - Either build-in device mapper: CONFIG_BLK_DEV_DM=y (and CONFIG_MD=y)
+      - Or disable initrd LVM: boot.initrd.lvm.enable = false;
+  - Root device bring-up:
+    - Prefer root=UUID=… or root=PARTUUID=… for robustness; otherwise use root=/dev/mmcblk0p2.
+    - Add rootwait rootdelay=20 to allow deferred SD/MMC/regulator probes to settle.
+
+- extlinux example (APPEND tokens that are proven to boot):
+  - Keep existing initrd and Image paths (LINUX/INITRD).
+  - Example APPEND additions:
+    - earlycon=meson,uart,mmio32,0xfe07a000,115200n8
+    - console=ttyAML0,115200n8 console=tty0
+    - keep_bootcon initcall_debug clk_ignore_unused printk.time=1 no_console_suspend
+    - root=UUID=<your-root-ext4-uuid> rootfstype=ext4 rootwait rootdelay=20
+  - If using OP-TEE later, remove the disable-optee overlay and re-test with matching vendor DT/firmware.
+
+- Overlays and DT handling:
+  - Runtime overlays are fragile; prefer pre-merge using fdtoverlay and ship a single DTB.
+  - If you must use Ubuntu overlay helper, ensure overlay target-paths exist in the base DTB.
+  - For this board, the OP-TEE node path found was /optee (disabled during bring-up).
+
+- Vendor kernel build notes (modules/vim1s.nix):
+  - Uses vendor 5.15.137 with a non-interactive .config. We added:
+    - CONFIG_RD_ZSTD/… and CONFIG_BLK_DEV_DM as above
+    - boot.initrd.lvm.enable = false (NixOS side)
+  - To build kernel only:
+    - nix build -L .#nixosConfigurations.vim1s.config.boot.kernelPackages.kernel --accept-flake-config
+    - Copy resulting Image to the SD’s /boot (update extlinux LINUX path accordingly).
+
+- Known-good checklist:
+  - FDT points to a DTB under /boot/dtb/amlogic/kvim1s*.dtb (pre-merged if possible).
+  - overlays= (empty) in /boot/dtb/amlogic/kvim1s.dtb.overlay.env during bring-up.
+  - extlinux APPEND contains earlycon/console and rootwait/rootdelay as above.
+  - Vendor kernel includes RD_ZSTD and (optionally) DM=y; or initrd LVM disabled.
+
 Quick commands and verification
 - Build SD image:
   - nix build -L .#vim1s-sd-image --accept-flake-config
