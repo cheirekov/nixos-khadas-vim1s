@@ -206,9 +206,8 @@ in
     kernelPackages = kernelPkgs;
     extraModulePackages = lib.mkForce [ ];
 
-    # U-Boot reads /boot/extlinux/extlinux.conf (from VFAT /boot).
-    loader.generic-extlinux-compatible.enable = true;
-    loader.generic-extlinux-compatible.configurationLimit = 1;
+    # We generate extlinux.conf ourselves in sdImage.populateRootCommands.
+    loader.generic-extlinux-compatible.enable = lib.mkForce false;
 
     # Root label is provided by the sd-image module. Serial console for Amlogic is usually ttyAML0.
     kernelParams = [
@@ -271,15 +270,23 @@ in
     # references a DTB path with no adjacent .overlay.env (avoids vendor runtime helper).
     # Patch extlinux.conf FDT line to point to this DTB; remove any FDTDIR.
     populateRootCommands = lib.mkAfter ''
-      mkdir -p "$ROOT/boot/dtb/amlogic"
+      mkdir -p "$ROOT/boot/dtb/amlogic" "$ROOT/boot/extlinux"
       install -Dm0644 ${dtbPackage}/amlogic/kvim1s.dtb "$ROOT/boot/dtb/amlogic/kvim1s.dtb"
 
-      if [ -f "$ROOT/boot/extlinux/extlinux.conf" ]; then
-        # Force FDT to /boot/dtb/amlogic/kvim1s.dtb on ext4 (partition 2)
-        sed -i -E 's#^([[:space:]]*FDT)[[:space:]].*$#\1 /boot/dtb/amlogic/kvim1s.dtb#' "$ROOT/boot/extlinux/extlinux.conf"
-        # Ensure no FDTDIR line remains
-        sed -i -E '/^[[:space:]]*FDTDIR[[:space:]]/d' "$ROOT/boot/extlinux/extlinux.conf"
-      fi
+      # Install kernel Image and initrd into /boot for simple extlinux references
+      install -Dm0644 ${khadasKernel}/Image "$ROOT/boot/Image"
+      install -Dm0644 ${config.system.build.initialRamdisk}/initrd "$ROOT/boot/initrd"
+
+      cat > "$ROOT/boot/extlinux/extlinux.conf" <<'EOFEXT'
+DEFAULT NixOS
+TIMEOUT 5
+
+LABEL NixOS
+LINUX /boot/Image
+INITRD /boot/initrd
+FDT /boot/dtb/amlogic/kvim1s.dtb
+APPEND init=${config.system.build.toplevel}/init console=ttyAML0,115200n8 console=tty0 earlycon=meson,uart,mmio32,0xfe07a000,115200n8 keep_bootcon initcall_debug clk_ignore_unused printk.time=1 no_console_suspend root=LABEL=NIXOS_SD rootfstype=ext4 rootdelay=10
+EOFEXT
     '';
 
     # Post-process: (1) optionally embed a signed U‑Boot blob into the SD image's MBR area
