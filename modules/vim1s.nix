@@ -74,7 +74,6 @@ CONFIG_DEBUG_INFO_DWARF4=y
 # CONFIG_DEBUG_INFO_DWARF5 is not set
 CONFIG_DEBUG_INFO_BTF=n
 CONFIG_DEBUG_INFO_BTF_MODULES=n
-
 # Support NixOS initrd compression (ZSTD used by default)
 CONFIG_RD_ZSTD=y
 CONFIG_RD_GZIP=y
@@ -206,47 +205,18 @@ in
     kernelPackages = kernelPkgs;
     extraModulePackages = lib.mkForce [ ];
 
-    # We generate extlinux.conf ourselves in sdImage.populateRootCommands.
-    loader.generic-extlinux-compatible.enable = lib.mkForce false;
-    # Provide a custom populateCmd to satisfy sd-image-aarch64 which expects it.
-    # This script writes into the provided -d DEST directory inside the image build
-    # environment (never touches host /boot), and creates a minimal extlinux setup.
-    loader.generic-extlinux-compatible.populateCmd = lib.mkForce (pkgs.writeShellScript "populate-extlinux-vim1s" ''
-      set -eu
-      toplevel=""
-      dest=""
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          -c) toplevel="$2"; shift 2;;
-          -d) dest="$2"; shift 2;;
-          *) shift;;
-        esac
-      done
-      : "${dest:?missing -d DEST}"
-      mkdir -p "$dest/extlinux" "$dest/dtb/amlogic"
-      cp -f ${khadasKernel}/Image "$dest/Image"
-      cp -f ${config.system.build.initialRamdisk}/initrd "$dest/initrd"
-      cp -f ${dtbPackage}/amlogic/kvim1s.dtb "$dest/dtb/amlogic/kvim1s.dtb"
-      cat > "$dest/extlinux/extlinux.conf" <<'EOFEXT'
-DEFAULT NixOS
-TIMEOUT 5
-
-LABEL NixOS
-LINUX /boot/Image
-INITRD /boot/initrd
-FDT /boot/dtb/amlogic/kvim1s.dtb
-APPEND init=${config.system.build.toplevel}/init console=ttyAML0,115200n8 console=tty0 earlycon=meson,uart,mmio32,0xfe07a000,115200n8 keep_bootcon initcall_debug clk_ignore_unused printk.time=1 no_console_suspend root=LABEL=NIXOS_SD rootfstype=ext4 rootdelay=10
-EOFEXT
-    '');
+    # U-Boot reads /boot/extlinux/extlinux.conf (from VFAT /boot).
+    loader.generic-extlinux-compatible.enable = true;
+    loader.generic-extlinux-compatible.configurationLimit = 1;
 
     # Root label is provided by the sd-image module. Serial console for Amlogic is usually ttyAML0.
-    kernelParams = [
-      "console=ttyS0,921600n8"
-      "console=ttyAML0,115200n8"
-      "root=LABEL=NIXOS_SD"
-      "rootfstype=ext4"
-      "rootdelay=3"
-    ];
+    # kernelParams = [
+    #   "console=ttyS0,921600n8"
+    #   "console=ttyAML0,115200n8"
+    #   "root=LABEL=NIXOS_SD"
+    #   "rootfstype=ext4"
+    #   "rootdelay=3"
+    # ];
 
     # Conservative initrd modules; harmless if not present.
     # Kernel was built effectively monolithic (no .ko installed). Avoid initrd
@@ -296,28 +266,8 @@ EOFEXT
     compressImage = true;
 
 
-    # Populate ext4 root: install a copy of the merged DTB under /boot/dtb so extlinux
-    # references a DTB path with no adjacent .overlay.env (avoids vendor runtime helper).
-    # Patch extlinux.conf FDT line to point to this DTB; remove any FDTDIR.
-    populateRootCommands = lib.mkAfter ''
-      mkdir -p "$ROOT/boot/dtb/amlogic" "$ROOT/boot/extlinux"
-      install -Dm0644 ${dtbPackage}/amlogic/kvim1s.dtb "$ROOT/boot/dtb/amlogic/kvim1s.dtb"
-
-      # Install kernel Image and initrd into /boot for simple extlinux references
-      install -Dm0644 ${khadasKernel}/Image "$ROOT/boot/Image"
-      install -Dm0644 ${config.system.build.initialRamdisk}/initrd "$ROOT/boot/initrd"
-
-      cat > "$ROOT/boot/extlinux/extlinux.conf" <<'EOFEXT'
-DEFAULT NixOS
-TIMEOUT 5
-
-LABEL NixOS
-LINUX /boot/Image
-INITRD /boot/initrd
-FDT /boot/dtb/amlogic/kvim1s.dtb
-APPEND init=${config.system.build.toplevel}/init console=ttyAML0,115200n8 console=tty0 earlycon=meson,uart,mmio32,0xfe07a000,115200n8 keep_bootcon initcall_debug clk_ignore_unused printk.time=1 no_console_suspend root=LABEL=NIXOS_SD rootfstype=ext4 rootdelay=10
-EOFEXT
-    '';
+    # No boot embed work in populateRootCommands; keep empty to avoid writing to / during ext4 population.
+    populateRootCommands = lib.mkAfter "";
 
     # Post-process: (1) optionally embed a signed U‑Boot blob into the SD image's MBR area
     # (2) optionally embed u-boot.ext into the FAT boot partition using mtools without mounting.
@@ -325,7 +275,7 @@ EOFEXT
       (lib.optionalString (uBootSigned != null) ''
         echo "Embedding signed U-Boot into $img from ${uBootSigned}"
         # Write MBR region
-        dd if=${uBootSigned} of=$img bs=1 count=444 conv=fsync,notrunc
+        dd if=${uBootSigned} of=$img bs=1 count=442 conv=fsync,notrunc
         # Write the rest of the image after the MBR
         dd if=${uBootSigned} of=$img bs=512 skip=1 seek=1 conv=fsync,notrunc
       '')
@@ -335,19 +285,6 @@ EOFEXT
           echo "Embedding prebuilt u-boot.ext into FAT boot partition"
           BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
           ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" ${uBootExtPrebuilt} ::/u-boot.ext
-
-          # Write a neutral uEnv.txt to force clean extlinux boot and disable overlay helpers.
-          tmp_uenv="$(mktemp)"
-          cat > "$tmp_uenv" <<'EOFUENV'
-bootcmd=sysboot mmc 0:1 any /boot/extlinux/extlinux.conf
-fdt_overlays=
-overlays=
-overlayfs=
-overlay_profile=
-preboot=
-EOFUENV
-          ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" "$tmp_uenv" ::/uEnv.txt
-          rm -f "$tmp_uenv"
         '')
         +
         (lib.optionalString (config ? system && config.system ? build && config.system.build ? ubootVim1s) ''
@@ -355,40 +292,9 @@ EOFUENV
             echo "Embedding built u-boot.ext from system.build.ubootVim1s into FAT boot partition"
             BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
             ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" ${config.system.build.ubootVim1s}/u-boot/u-boot.ext ::/u-boot.ext
-
-            # Write a neutral uEnv.txt to force clean extlinux boot and disable overlay helpers.
-            tmp_uenv="$(mktemp)"
-            cat > "$tmp_uenv" <<'EOFUENV'
-bootcmd=sysboot mmc 0:1 any /boot/extlinux/extlinux.conf
-fdt_overlays=
-overlays=
-overlayfs=
-overlay_profile=
-preboot=
-EOFUENV
-            ${pkgs.mtools}/bin/mcopy -i "$img@@$BOOT_START" "$tmp_uenv" ::/uEnv.txt
-            rm -f "$tmp_uenv"
           fi
         '')
       ))
-      +
-      ''
-        # Always write a neutral uEnv.txt on the FAT partition to force clean sysboot
-        # to extlinux on partition 2 and disable overlay/preboot helpers. Do this
-        # unconditionally so it exists even when we don't embed u-boot.ext.
-        BOOT_START=$(${pkgs.parted}/bin/parted -sm "$img" unit B print | awk -F: '/^1:/ { sub(/B$/,"",$2); print $2 }')
-        tmp_uenv="$(mktemp)"
-        cat > "$tmp_uenv" <<'EOFUENV'
-bootcmd=sysboot mmc 0:2 any /boot/extlinux/extlinux.conf
-fdt_overlays=
-overlays=
-overlayfs=
-overlay_profile=
-preboot=
-EOFUENV
-        ${pkgs.mtools}/bin/mcopy -o -i "$img@@$BOOT_START" "$tmp_uenv" ::/uEnv.txt
-        rm -f "$tmp_uenv"
-      ''
     );
   };
 
