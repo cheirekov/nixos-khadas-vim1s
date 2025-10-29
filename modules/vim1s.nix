@@ -200,7 +200,7 @@ in
   khadas.ubootVim1s.embedInBoot = true;
   khadas.ubootVim1s.defconfig = "kvim1s_defconfig";
 
-
+  
   boot = {
     kernelPackages = kernelPkgs;
     extraModulePackages = lib.mkForce [ ];
@@ -235,6 +235,7 @@ in
 
   # Firmware (Wi-Fi/BT/etc.)
   hardware.firmware = [ pkgs.armbian-firmware pkgs.linux-firmware ];
+  hardware.enableRedistributableFirmware = true;
 
   # Filesystems we want in userspace/initrd
   boot.supportedFilesystems = [ "vfat" "ext4" "btrfs" "f2fs" ];
