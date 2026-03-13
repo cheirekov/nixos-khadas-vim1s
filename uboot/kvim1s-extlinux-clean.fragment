@@ -4,6 +4,9 @@ CONFIG_ENV_IS_NOWHERE=y
 # CONFIG_ENV_IS_IN_MMC is not set
 # CONFIG_CMD_CFGLOAD is not set
 # CONFIG_CMD_INI is not set
+# Vendor rsvmem logic expects legacy linux,secmon nodes and aborts booti
+# on the current kvim1s DTB before Linux gets control.
+# CONFIG_CMD_RSVMEM is not set
 
 # Keep standard distro/extlinux boot
 CONFIG_DISTRO_DEFAULTS=y

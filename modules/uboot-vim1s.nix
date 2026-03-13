@@ -1,6 +1,7 @@
 { lib, pkgs, config, uboot-khadas, ... }:
 
 let
+  extlinuxFragment = ../uboot/kvim1s-extlinux-clean.fragment;
   ubootVim1s = pkgs.stdenv.mkDerivation {
     pname = "uboot-khadas-vim1s";
     version = "v2019.01-khadas";
@@ -110,6 +111,17 @@ let
       else
         echo '# CONFIG_FIT_FULL_CHECK is not set' >> build/.config
       fi
+
+      # The extlinux-clean fragment disables CONFIG_CMD_INI; vendor Dolby Vision
+      # support still references the ini helpers and breaks the final link.
+      if grep -q '^CONFIG_AML_DOLBY=' build/.config; then
+        sed -i 's/^CONFIG_AML_DOLBY=.*/# CONFIG_AML_DOLBY is not set/' build/.config
+      else
+        echo '# CONFIG_AML_DOLBY is not set' >> build/.config
+      fi
+
+      # Drop the Khadas/Ubuntu helper path so extlinux stays authoritative.
+      cat ${extlinuxFragment} >> build/.config
 
       make O=build olddefconfig
 

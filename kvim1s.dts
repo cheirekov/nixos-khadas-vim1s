@@ -2562,15 +2562,15 @@
 			cap-sd-highspeed;
 			sd-uhs-sdr12;
 			sd-uhs-sdr25;
-			sd-uhs-sdr50;
-			sd-uhs-sdr104;
-			max-frequency = <0xbebc200>;
-			disable-wp;
-			cd-gpios = <0x1d 0x14 0x00>;
-			dat1-gpios = <0x1d 0x0f 0x00>;
-			vmmc-supply = <0x31>;
-			vqmmc-supply = <0x32>;
-			phandle = <0xf5>;
+				sd-uhs-sdr50;
+				sd-uhs-sdr104;
+				max-frequency = <0xbebc200>;
+				disable-wp;
+				broken-cd;
+				dat1-gpios = <0x1d 0x0f 0x00>;
+				vmmc-supply = <0x31>;
+				vqmmc-supply = <0x32>;
+				phandle = <0xf5>;
 		};
 
 		sdio@fe088000 {
