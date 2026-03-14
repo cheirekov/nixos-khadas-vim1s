@@ -72,6 +72,9 @@ CONFIG_DMI=y
 CONFIG_DMIID=y
 # Ensure Amlogic Meson platform is enabled in vendor tree
 CONFIG_ARCH_MESON=y
+CONFIG_AMLOGIC_DRIVER=y
+CONFIG_AMLOGIC_IN_KERNEL_MODULES=y
+CONFIG_AMLOGIC_GPIO=y
 
 # VIM1S uses vendor S4 provider drivers from common_drivers for pinctrl and
 # the main clock controller. Without these, the MMC hosts exist in DT but stay
