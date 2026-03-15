@@ -4,7 +4,20 @@ let
   khadasSrc = pkgs.runCommand "khadas-linux-src-with-common-drivers" {} ''
     mkdir -p $out
     cp -r ${kernel-khadas}/* $out/
-    ln -s ${common_drivers} $out/common_drivers
+    mkdir -p $out/common_drivers
+    cp -r ${common_drivers}/. $out/common_drivers/
+    chmod -R u+w $out
+
+    # Khadas enables -Werror unconditionally once AMLOGIC_DRIVER is set, which
+    # turns benign vendor warnings into hard build failures with GCC 13.
+    sed -i '/^KBUILD_CFLAGS += -Werror$/d' $out/Makefile
+
+    # Vendor GPIO stubs have mismatched fallback signatures. Once the S4
+    # pinctrl/GPIO stack is enabled, GCC treats these as a real type error via
+    # module_merge.h, so fix the signatures in the copied source tree.
+    substituteInPlace $out/common_drivers/drivers/gpio/main.h \
+      --replace 'static inline void meson_gpio_irq_init(void)' 'static inline int meson_gpio_irq_init(void)' \
+      --replace 'static inline int meson_gpio_irq_exit(void)' 'static inline void meson_gpio_irq_exit(void)'
   '';
   localDtOverlayDir = ../files/dtb;
   dtbOverlayEnv = pkgs.writeText "kvim1s.dtb.overlay.env" ''
