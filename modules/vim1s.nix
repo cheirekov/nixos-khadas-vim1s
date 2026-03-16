@@ -18,6 +18,31 @@ let
     substituteInPlace $out/common_drivers/drivers/gpio/main.h \
       --replace 'static inline void meson_gpio_irq_init(void)' 'static inline int meson_gpio_irq_init(void)' \
       --replace 'static inline int meson_gpio_irq_exit(void)' 'static inline void meson_gpio_irq_exit(void)'
+
+    # Khadas' MMC host uses IS_ENABLED() on CQHCI helper paths. When the vendor
+    # defconfig leaves AMLOGIC_MMC_CQHCI=m, those branches still compile into
+    # the built-in host object and later fail to link against module-only
+    # meson-cqhci symbols. Treat the helper as reachable only when it can really
+    # link into the current build.
+    sed -i 's/IS_ENABLED(CONFIG_AMLOGIC_MMC_CQHCI)/IS_REACHABLE(CONFIG_AMLOGIC_MMC_CQHCI)/g' \
+      $out/common_drivers/drivers/mmc/host/meson-gx-mmc.c
+
+    # eMMC key registration is optional vendor functionality, not part of the
+    # SD boot path. Skip unifykey registration when the provider is not built
+    # into the current image, otherwise vmlinux links mmc_key.o against
+    # module-only or disabled unifykey symbols.
+    ${pkgs.python3}/bin/python3 - "$out/common_drivers/drivers/mmc/host/mmc_key.c" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = """\tif (register_unifykey_types(uk_type)) {\n\t\t*retp = -EINVAL;\n\t\tpr_info(\"%s:%d,emmc key check fail\\n\", __func__, __LINE__);\n\t\tgoto exit_err1;\n\t}\n\tpr_info(\"emmc key: %s:%d ok.\\n\", __func__, __LINE__);\n\n\tauto_attach();\n"""
+new = """\tif (IS_REACHABLE(CONFIG_AMLOGIC_EFUSE_UNIFYKEY)) {\n\t\tif (register_unifykey_types(uk_type)) {\n\t\t\t*retp = -EINVAL;\n\t\t\tpr_info(\"%s:%d,emmc key check fail\\n\", __func__, __LINE__);\n\t\t\tgoto exit_err1;\n\t\t}\n\t\tpr_info(\"emmc key: %s:%d ok.\\n\", __func__, __LINE__);\n\n\t\tauto_attach();\n\t} else {\n\t\tpr_info(\"emmc key: unifykey support disabled, skip registration\\n\");\n\t}\n"""
+if old not in text:
+    raise SystemExit("failed to patch mmc_key.c")
+path.write_text(text.replace(old, new, 1))
+PY
   '';
   localDtOverlayDir = ../files/dtb;
   dtbOverlayEnv = pkgs.writeText "kvim1s.dtb.overlay.env" ''
@@ -178,6 +203,12 @@ CONFIG_AMLOGIC_PINCTRL_MESON_S4=y
 # CONFIG_AMLOGIC_PINCTRL_MESON_S7 is not set
 # CONFIG_AMLOGIC_PINCTRL_MESON_S7D is not set
 CONFIG_AMLOGIC_MMC_MESON_GX=y
+# CONFIG_MMC_CQHCI is not set
+# CONFIG_AMLOGIC_MMC_CQHCI is not set
+# CONFIG_AMLOGIC_EFUSE_UNIFYKEY is not set
+# CONFIG_AMLOGIC_EFUSE is not set
+# CONFIG_AMLOGIC_UNIFYKEY is not set
+# CONFIG_AMLOGIC_DEFENDKEY is not set
 
 # Fix link error from hid-core referencing uhid_hid_driver:
 # Build UHID into the kernel so hid-core can reference it.
@@ -208,7 +239,7 @@ EOF
 
       echo "VIM1S kernel config summary:"
       grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
-      grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX) is not set)$' .config || true
+      grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
 
       # Fail fast if olddefconfig re-enables the upstream Meson providers or if
       # the vendor S4 root-path drivers are not built in. This keeps remote
@@ -223,7 +254,11 @@ EOF
         '# CONFIG_COMMON_CLK_AXG_AUDIO is not set' \
         '# CONFIG_COMMON_CLK_G12A is not set' \
         '# CONFIG_PINCTRL_MESON is not set' \
-        '# CONFIG_MMC_MESON_GX is not set'
+        '# CONFIG_MMC_MESON_GX is not set' \
+        '# CONFIG_MMC_CQHCI is not set' \
+        '# CONFIG_AMLOGIC_MMC_CQHCI is not set' \
+        '# CONFIG_AMLOGIC_EFUSE_UNIFYKEY is not set' \
+        '# CONFIG_AMLOGIC_UNIFYKEY is not set'
       do
         grep -qxF "$line" .config || {
           echo "Unexpected kernel config: missing '$line'" >&2
