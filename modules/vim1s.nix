@@ -52,11 +52,16 @@ let
         test -f "$f" && sed -i 's/\r$//' "$f" || true
       done
 
-      # Seed .config from nixpkgs 5.15 kernel config (meets NixOS requirements), then adapt to Khadas vendor Kconfig
-      cp ${pkgs.linuxPackages_5_15.kernel.configfile} .config
+      # Start from the exact vendor VIMS defconfig. Khadas' own 5.15 build uses
+      # kvims_defconfig plus common_drivers; seeding from the generic nixpkgs
+      # 5.15 config was pulling in upstream Meson clock/pinctrl/MMC drivers at
+      # the same time, which later collided with the vendor common_drivers
+      # copies at link time.
+      cp ./arch/arm64/configs/kvims_defconfig .config
       chmod u+w .config
 
-      # Minimal fragment to satisfy NixOS kernel assertions
+      # Minimal fragment to satisfy NixOS boot requirements and keep the VIM1S
+      # bring-up path on the vendor Amlogic stack.
       cat >> .config << 'EOF'
 CONFIG_DEVTMPFS=y
 CONFIG_DEVTMPFS_MOUNT=y
@@ -83,16 +88,45 @@ CONFIG_BINFMT_ELF=y
 CONFIG_UNIX=y
 CONFIG_DMI=y
 CONFIG_DMIID=y
-# Ensure Amlogic Meson platform is enabled in vendor tree
 CONFIG_ARCH_MESON=y
+
+# Use the vendor common_drivers stack for VIM1S instead of the upstream Meson
+# clock/pinctrl/MMC implementations. Mixing both trees produces duplicate
+# symbols such as meson_clk_pll_ops, clk_regmap_gate_ops, and meson_pmx_*.
+# CONFIG_MMC_MESON_GX is not set
+# CONFIG_PINCTRL_MESON is not set
+# CONFIG_PINCTRL_MESON_GXBB is not set
+# CONFIG_PINCTRL_MESON_GXL is not set
+# CONFIG_PINCTRL_MESON8_PMX is not set
+# CONFIG_PINCTRL_MESON_AXG is not set
+# CONFIG_PINCTRL_MESON_AXG_PMX is not set
+# CONFIG_PINCTRL_MESON_G12A is not set
+# CONFIG_PINCTRL_MESON_A1 is not set
+# CONFIG_COMMON_CLK_MESON_REGMAP is not set
+# CONFIG_COMMON_CLK_MESON_DUALDIV is not set
+# CONFIG_COMMON_CLK_MESON_MPLL is not set
+# CONFIG_COMMON_CLK_MESON_PHASE is not set
+# CONFIG_COMMON_CLK_MESON_PLL is not set
+# CONFIG_COMMON_CLK_MESON_SCLK_DIV is not set
+# CONFIG_COMMON_CLK_MESON_VID_PLL_DIV is not set
+# CONFIG_COMMON_CLK_MESON_AO_CLKC is not set
+# CONFIG_COMMON_CLK_MESON_EE_CLKC is not set
+# CONFIG_COMMON_CLK_MESON_CPU_DYNDIV is not set
+# CONFIG_COMMON_CLK_GXBB is not set
+# CONFIG_COMMON_CLK_AXG is not set
+# CONFIG_COMMON_CLK_AXG_AUDIO is not set
+# CONFIG_COMMON_CLK_G12A is not set
+
 CONFIG_AMLOGIC_DRIVER=y
 CONFIG_AMLOGIC_IN_KERNEL_MODULES=y
 CONFIG_AMLOGIC_GPIO=y
+CONFIG_AMLOGIC_GPIOLIB=y
 
 # VIM1S uses vendor S4 provider drivers from common_drivers for pinctrl and
 # the main clock controller. Without these, the MMC hosts exist in DT but stay
 # stuck in deferred probe waiting on fe000000.apb4:pinctrl@4000 and
-# fe000000.clock-controller.
+# fe000000.clock-controller. Build the root-path pieces in rather than as
+# modules so the initrd can see the SD card before stage 1 switches root.
 CONFIG_AMLOGIC_COMMON_CLK=y
 CONFIG_AMLOGIC_COMMON_CLK_MESON_REGMAP=y
 CONFIG_AMLOGIC_COMMON_CLK_MESON_DUALDIV=y
@@ -105,8 +139,45 @@ CONFIG_AMLOGIC_COMMON_CLK_MESON_AO_CLKC=y
 CONFIG_AMLOGIC_COMMON_CLK_MESON_EE_CLKC=y
 CONFIG_AMLOGIC_COMMON_CLK_MESON_CPU_DYNDIV=y
 CONFIG_AMLOGIC_COMMON_CLK_S4=y
+# CONFIG_AMLOGIC_COMMON_CLK_SC2 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_C2 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_C3 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_A1 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_T3 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_T7 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_T5M is not set
+# CONFIG_AMLOGIC_COMMON_CLK_G12A is not set
+# CONFIG_AMLOGIC_COMMON_CLK_S5 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_T5W is not set
+# CONFIG_AMLOGIC_COMMON_CLK_T3X is not set
+# CONFIG_AMLOGIC_COMMON_CLK_TXHD2 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_C1 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_S1A is not set
+# CONFIG_AMLOGIC_COMMON_CLK_T5D is not set
+# CONFIG_AMLOGIC_COMMON_CLK_TM2 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_S7 is not set
+# CONFIG_AMLOGIC_COMMON_CLK_S7D is not set
 CONFIG_AMLOGIC_PINCTRL_MESON=y
 CONFIG_AMLOGIC_PINCTRL_MESON_S4=y
+# CONFIG_AMLOGIC_PINCTRL_MESON_C2 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_C3 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_A1 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_SC2 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_T3 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_T7 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_T5M is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_G12A is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_S5 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_T5W is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_T3X is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_TXHD2 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_C1 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_S1A is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_T5D is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_TM2 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_S7 is not set
+# CONFIG_AMLOGIC_PINCTRL_MESON_S7D is not set
+CONFIG_AMLOGIC_MMC_MESON_GX=y
 
 # Fix link error from hid-core referencing uhid_hid_driver:
 # Build UHID into the kernel so hid-core can reference it.
@@ -134,6 +205,31 @@ EOF
 
       # Reconcile config non-interactively (avoid piping `yes`, which trips pipefail)
       make ARCH=arm64 olddefconfig
+
+      echo "VIM1S kernel config summary:"
+      grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
+      grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX) is not set)$' .config || true
+
+      # Fail fast if olddefconfig re-enables the upstream Meson providers or if
+      # the vendor S4 root-path drivers are not built in. This keeps remote
+      # build logs honest and avoids spending ~1h on a kernel that will just
+      # hit duplicate-symbol link errors again.
+      for line in \
+        'CONFIG_AMLOGIC_COMMON_CLK_S4=y' \
+        'CONFIG_AMLOGIC_PINCTRL_MESON_S4=y' \
+        'CONFIG_AMLOGIC_MMC_MESON_GX=y' \
+        '# CONFIG_COMMON_CLK_GXBB is not set' \
+        '# CONFIG_COMMON_CLK_AXG is not set' \
+        '# CONFIG_COMMON_CLK_AXG_AUDIO is not set' \
+        '# CONFIG_COMMON_CLK_G12A is not set' \
+        '# CONFIG_PINCTRL_MESON is not set' \
+        '# CONFIG_MMC_MESON_GX is not set'
+      do
+        grep -qxF "$line" .config || {
+          echo "Unexpected kernel config: missing '$line'" >&2
+          exit 1
+        }
+      done
     '';
 
     installPhase = ''
