@@ -2,11 +2,11 @@
 /plugin/;
 
 / {
-    /* Force kernel stdout to serial0 (alias -> /soc/apb4@fe000000/serial@7a000) at 921600 8N1 */
+    /* Keep kernel stdout on serial0 at 115200 so earlycon and ttyAML0 match. */
     fragment@0 {
         target-path = "/chosen";
         __overlay__ {
-            stdout-path = "serial0:921600n8";
+            stdout-path = "serial0:115200n8";
         };
     };
 };

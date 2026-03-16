@@ -102,6 +102,9 @@ CONFIG_FHANDLE=y
 CONFIG_CRYPTO_USER_API_HASH=y
 CONFIG_CRYPTO_HMAC=y
 CONFIG_CRYPTO_SHA256=y
+CONFIG_REGULATOR=y
+CONFIG_REGULATOR_FIXED_VOLTAGE=y
+CONFIG_REGULATOR_GPIO=y
 CONFIG_AUTOFS_FS=y
 CONFIG_TMPFS=y
 CONFIG_TMPFS_POSIX_ACL=y
@@ -239,6 +242,7 @@ EOF
 
       echo "VIM1S kernel config summary:"
       grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
+      grep -E '^(CONFIG_REGULATOR_GPIO)=' .config || true
       grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
 
       # Fail fast if olddefconfig re-enables the upstream Meson providers or if
@@ -249,6 +253,7 @@ EOF
         'CONFIG_AMLOGIC_COMMON_CLK_S4=y' \
         'CONFIG_AMLOGIC_PINCTRL_MESON_S4=y' \
         'CONFIG_AMLOGIC_MMC_MESON_GX=y' \
+        'CONFIG_REGULATOR_GPIO=y' \
         '# CONFIG_COMMON_CLK_GXBB is not set' \
         '# CONFIG_COMMON_CLK_AXG is not set' \
         '# CONFIG_COMMON_CLK_AXG_AUDIO is not set' \
@@ -411,14 +416,15 @@ in
     loader.generic-extlinux-compatible.enable = true;
     loader.generic-extlinux-compatible.configurationLimit = 1;
 
-    # U-Boot leaves UART_B running at 921600, so earlycon stays readable at that
-    # rate. The vendor ttyAML driver later reprograms this port from a 24 MHz
-    # crystal clock, and 921600 is far enough off to corrupt the runtime serial
-    # console. Use 115200 once Linux takes over.
+    # Keep bring-up on the serial console only. `console=tty0` causes Linux to
+    # drop the bootconsole as soon as the dummy VT appears, which hides the
+    # handoff to the vendor ttyAML driver. Using 115200 in both the DT stdout
+    # path and ttyAML console keeps the UART rate stable across the transition.
     kernelParams = lib.mkForce [
       "console=ttyAML0,115200n8"
       "console=tty0"
       "earlycon"
+      "keep_bootcon"
       "ignore_loglevel"
       "initcall_debug"
       "meson_gx_mmc.dyndbg=+p"
@@ -499,12 +505,12 @@ in
     echo "===== initrd device debug end ====="
   '';
 
-  # Early userspace on this vendor kernel is not reliably exposing the ext4
-  # root partition under /dev/disk/by-label/NIXOS_SD in time for stage 1, even
-  # though the SD/MMC drivers are built in. Use the concrete SD device path for
-  # bring-up and keep the firmware partition optional.
+  # The internal eMMC enumerates before the removable SD slot on VIM1S, so a
+  # hardcoded /dev/mmcblk0p2 points at the wrong device once the SD stack
+  # starts working. Follow the rootfs label again and keep the firmware
+  # partition optional.
   fileSystems."/" = lib.mkForce {
-    device = "/dev/mmcblk0p2";
+    device = "/dev/disk/by-label/NIXOS_SD";
     fsType = "ext4";
     options = [ "x-initrd.mount" ];
   };
