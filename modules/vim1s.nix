@@ -239,7 +239,7 @@ EOF
 
       echo "VIM1S kernel config summary:"
       grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
-      grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
+      grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
 
       # Fail fast if olddefconfig re-enables the upstream Meson providers or if
       # the vendor S4 root-path drivers are not built in. This keeps remote
@@ -256,7 +256,6 @@ EOF
         '# CONFIG_PINCTRL_MESON is not set' \
         '# CONFIG_MMC_MESON_GX is not set' \
         '# CONFIG_MMC_CQHCI is not set' \
-        '# CONFIG_AMLOGIC_MMC_CQHCI is not set' \
         '# CONFIG_AMLOGIC_EFUSE_UNIFYKEY is not set' \
         '# CONFIG_AMLOGIC_UNIFYKEY is not set'
       do
@@ -265,6 +264,14 @@ EOF
           exit 1
         }
       done
+
+      # AMLOGIC_MMC_CQHCI depends on MMC_CQHCI. Once MMC_CQHCI is forced off,
+      # olddefconfig may omit the vendor symbol entirely instead of emitting an
+      # explicit '# CONFIG_AMLOGIC_MMC_CQHCI is not set' line.
+      if grep -q '^CONFIG_AMLOGIC_MMC_CQHCI=' .config; then
+        echo "Unexpected kernel config: AMLOGIC_MMC_CQHCI is still enabled" >&2
+        exit 1
+      fi
     '';
 
     installPhase = ''
