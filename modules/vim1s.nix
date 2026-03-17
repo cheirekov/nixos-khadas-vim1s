@@ -217,7 +217,6 @@ CONFIG_AMLOGIC_MMC_MESON_GX=y
 # exposes fdc00000.ethernet and the MDIO mux/bus nodes, but the vendor
 # defconfig leaves the whole dwmac/MDIO stack modular. This image has no
 # usable module tree at runtime, so the MAC never binds and no netdev appears.
-CONFIG_MDIO=y
 CONFIG_STMMAC_ETH=y
 CONFIG_STMMAC_PLATFORM=y
 CONFIG_DWMAC_MESON=y
@@ -286,7 +285,6 @@ EOF
         'CONFIG_AMLOGIC_COMMON_CLK_S4=y' \
         'CONFIG_AMLOGIC_PINCTRL_MESON_S4=y' \
         'CONFIG_AMLOGIC_MMC_MESON_GX=y' \
-        'CONFIG_MDIO=y' \
         'CONFIG_STMMAC_ETH=y' \
         'CONFIG_STMMAC_PLATFORM=y' \
         'CONFIG_DWMAC_MESON=y' \
