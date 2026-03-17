@@ -213,6 +213,37 @@ CONFIG_AMLOGIC_MMC_MESON_GX=y
 # CONFIG_AMLOGIC_UNIFYKEY is not set
 # CONFIG_AMLOGIC_DEFENDKEY is not set
 
+# Keep the onboard Ethernet path built in as well. The VIM1S device tree
+# exposes fdc00000.ethernet and the MDIO mux/bus nodes, but the vendor
+# defconfig leaves the whole dwmac/MDIO stack modular. This image has no
+# usable module tree at runtime, so the MAC never binds and no netdev appears.
+CONFIG_MDIO=y
+CONFIG_STMMAC_ETH=y
+CONFIG_STMMAC_PLATFORM=y
+CONFIG_DWMAC_MESON=y
+CONFIG_MDIO_BUS_MUX=y
+CONFIG_MDIO_BUS_MUX_MESON_G12A=y
+CONFIG_AMLOGIC_MDIO_G12A=y
+
+# Keep the vendor display stack built in as well. The board DT exposes
+# ff900000.drm-vpu, 0.amhdmitx, and the S4 VPU helpers, but when
+# CONFIG_AMLOGIC_DRM stays =m there is no usable module payload on the image,
+# so Linux never registers the DRM driver and HDMI stays dark.
+CONFIG_AMLOGIC_MEDIA_CANVAS=y
+CONFIG_AMLOGIC_VPU=y
+CONFIG_AMLOGIC_VOUT=y
+CONFIG_AMLOGIC_VOUT_CLK_SERVE=y
+CONFIG_AMLOGIC_VOUT_SERVE=y
+CONFIG_AMLOGIC_VOUT2_SERVE=y
+CONFIG_AMLOGIC_VOUT3_SERVE=y
+CONFIG_AMLOGIC_HDMITX_COMMON=y
+CONFIG_AMLOGIC_HDMITX21=y
+CONFIG_AMLOGIC_HDMITX=y
+CONFIG_AMLOGIC_DRM=y
+CONFIG_AMLOGIC_DRM_VPU=y
+CONFIG_AMLOGIC_DRM_USE_ION=y
+CONFIG_AMLOGIC_DRM_EMULATE_FBDEV=y
+
 # Fix link error from hid-core referencing uhid_hid_driver:
 # Build UHID into the kernel so hid-core can reference it.
 CONFIG_UHID=y
@@ -242,6 +273,8 @@ EOF
 
       echo "VIM1S kernel config summary:"
       grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
+      grep -E '^(CONFIG_MDIO|CONFIG_STMMAC_ETH|CONFIG_STMMAC_PLATFORM|CONFIG_DWMAC_MESON|CONFIG_MDIO_BUS_MUX_MESON_G12A|CONFIG_AMLOGIC_MDIO_G12A)=' .config || true
+      grep -E '^(CONFIG_AMLOGIC_DRM|CONFIG_AMLOGIC_HDMITX|CONFIG_AMLOGIC_VPU|CONFIG_AMLOGIC_VOUT)=' .config || true
       grep -E '^(CONFIG_REGULATOR_GPIO)=' .config || true
       grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
 
@@ -253,6 +286,16 @@ EOF
         'CONFIG_AMLOGIC_COMMON_CLK_S4=y' \
         'CONFIG_AMLOGIC_PINCTRL_MESON_S4=y' \
         'CONFIG_AMLOGIC_MMC_MESON_GX=y' \
+        'CONFIG_MDIO=y' \
+        'CONFIG_STMMAC_ETH=y' \
+        'CONFIG_STMMAC_PLATFORM=y' \
+        'CONFIG_DWMAC_MESON=y' \
+        'CONFIG_MDIO_BUS_MUX_MESON_G12A=y' \
+        'CONFIG_AMLOGIC_MDIO_G12A=y' \
+        'CONFIG_AMLOGIC_DRM=y' \
+        'CONFIG_AMLOGIC_HDMITX=y' \
+        'CONFIG_AMLOGIC_VPU=y' \
+        'CONFIG_AMLOGIC_VOUT=y' \
         'CONFIG_REGULATOR_GPIO=y' \
         '# CONFIG_COMMON_CLK_GXBB is not set' \
         '# CONFIG_COMMON_CLK_AXG is not set' \
@@ -411,17 +454,17 @@ in
   boot = {
     kernelPackages = kernelPkgs;
     extraModulePackages = lib.mkForce [ ];
+    growPartition = false;
 
     # Khadas vendor U-Boot scans /boot/extlinux/extlinux.conf from the rootfs.
     loader.generic-extlinux-compatible.enable = true;
     loader.generic-extlinux-compatible.configurationLimit = 1;
 
-    # Keep bring-up on the serial console only. `console=tty0` causes Linux to
-    # drop the bootconsole as soon as the dummy VT appears, which hides the
-    # handoff to the vendor ttyAML driver. Using 115200 in both the DT stdout
-    # path and ttyAML console keeps the UART rate stable across the transition.
+    # Keep bring-up on the serial console only. The vendor kernel registers the
+    # main UART as ttyS0, so use that for the real Linux console and serial
+    # getty. Earlycon still comes from the DT stdout-path.
     kernelParams = lib.mkForce [
-      "console=ttyAML0,115200n8"
+      "console=ttyS0,115200n8"
       "console=tty0"
       "earlycon"
       "keep_bootcon"
@@ -524,6 +567,7 @@ in
   # Minimal useful services on first boot
   services.openssh.enable = true;
   services.getty.autologinUser = lib.mkDefault "nixos";
+  systemd.services."serial-getty@ttyS0".enable = true;
 
   users.users.nixos = {
     isNormalUser = true;
@@ -606,6 +650,13 @@ in
     vim
     htop
     ethtool
+    iw
+    bluez
+    alsa-utils
+    v4l-utils
+    libgpiod
+    strace
+    lsof
     usbutils
     pciutils
     ubootTools
