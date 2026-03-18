@@ -221,54 +221,21 @@ CONFIG_AMLOGIC_MMC_MESON_GX=y
 # CONFIG_AMLOGIC_UNIFYKEY is not set
 # CONFIG_AMLOGIC_DEFENDKEY is not set
 
-# Keep the onboard Ethernet path built in as well. The VIM1S device tree
-# exposes fdc00000.ethernet and the MDIO mux/bus nodes, but the vendor
-# defconfig leaves the whole dwmac/MDIO stack modular. This image has no
-# usable module tree at runtime, so the MAC never binds and no netdev appears.
-CONFIG_STMMAC_ETH=y
-CONFIG_STMMAC_PLATFORM=y
-CONFIG_DWMAC_MESON=y
-CONFIG_MDIO_BUS_MUX=y
-CONFIG_MDIO_BUS_MUX_MESON_G12A=y
-CONFIG_AMLOGIC_MDIO_G12A=y
-
-# Keep the vendor display stack built in as well. The board DT exposes
-# ff900000.drm-vpu, 0.amhdmitx, and the S4 VPU helpers, but when
-# CONFIG_AMLOGIC_DRM stays =m there is no usable module payload on the image,
-# so Linux never registers the DRM driver and HDMI stays dark.
-CONFIG_AMLOGIC_MEDIA_MODULE=y
-CONFIG_AMLOGIC_MEDIA_ENABLE=y
-CONFIG_AMLOGIC_MEDIA_COMMON=y
-CONFIG_AMLOGIC_MEDIA_DRIVERS=y
-CONFIG_AMLOGIC_MEDIA_CANVAS=y
-CONFIG_AMLOGIC_MEDIA_RDMA=y
-CONFIG_AMLOGIC_MEDIA_VSYNC_RDMA=y
-CONFIG_AMLOGIC_MEDIA_VFM=y
-CONFIG_AMLOGIC_MEDIA_SECURITY=y
-CONFIG_AMLOGIC_MEDIA_VIDEO=y
-CONFIG_AMLOGIC_MEDIA_VIDEO_PROCESSOR=y
-CONFIG_AMLOGIC_POST_PROCESS_MANAGER=y
-CONFIG_AMLOGIC_MEDIA_UTILS=y
-CONFIG_AMLOGIC_VIDEO_COMPOSER=y
-CONFIG_AMLOGIC_VIDEO_PP_COMMON=y
-CONFIG_AMLOGIC_MEDIA_ENHANCEMENT=y
-CONFIG_AMLOGIC_MEDIA_ENHANCEMENT_DOLBYVISION=y
-CONFIG_AMLOGIC_MEDIA_ENHANCEMENT_VECM=y
-CONFIG_AMLOGIC_VPU=y
-CONFIG_AMLOGIC_VOUT=y
-CONFIG_AMLOGIC_VOUT_CLK_SERVE=y
-CONFIG_AMLOGIC_VOUT_SERVE=y
-CONFIG_AMLOGIC_VOUT2_SERVE=y
-CONFIG_AMLOGIC_VOUT3_SERVE=y
-CONFIG_AMLOGIC_HDMITX_COMMON=y
-CONFIG_AMLOGIC_HDMITX21=y
-CONFIG_AMLOGIC_HDMITX=y
-CONFIG_AMLOGIC_DRM=y
-CONFIG_AMLOGIC_DRM_VPU=y
-CONFIG_AMLOGIC_DRM_USE_ION=y
-CONFIG_AMLOGIC_DRM_EMULATE_FBDEV=y
-CONFIG_AMLOGIC_SECMON=y
-CONFIG_AMLOGIC_CPU_INFO=y
+# Keep boot-critical storage and pinctrl paths built in, but leave the
+# broader Ethernet and display/media stacks in the vendor modular shape.
+# Khadas' own kvims_defconfig expects those helpers to live in .ko files;
+# forcing them into vmlinux drags in Android-era TEE/media dependencies and
+# explodes the final link. The real fix is to let linuxManualConfig parse
+# CONFIG_MODULES=y and produce a proper modules output.
+CONFIG_STMMAC_ETH=m
+CONFIG_STMMAC_PLATFORM=m
+CONFIG_DWMAC_MESON=m
+CONFIG_AMLOGIC_MDIO_G12A=m
+CONFIG_AMLOGIC_MEDIA_MODULE=m
+CONFIG_AMLOGIC_MEDIA_UTILS=m
+CONFIG_AMLOGIC_DRM=m
+CONFIG_AMLOGIC_SECMON=m
+CONFIG_AMLOGIC_CPU_INFO=m
 
 # Fix link error from hid-core referencing uhid_hid_driver:
 # Build UHID into the kernel so hid-core can reference it.
@@ -305,26 +272,13 @@ EOF
       grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
 
       # Fail fast if olddefconfig re-enables the upstream Meson providers or if
-      # the vendor S4 root-path drivers are not built in. This keeps remote
-      # build logs honest and avoids spending ~1h on a kernel that will just
-      # hit duplicate-symbol link errors again.
+      # the vendor S4 root-path drivers are not built in. Only the SD boot path
+      # is required here; Ethernet/DRM/media should remain modular like the
+      # vendor defconfig once linuxManualConfig is allowed to install modules.
       for line in \
         'CONFIG_AMLOGIC_COMMON_CLK_S4=y' \
         'CONFIG_AMLOGIC_PINCTRL_MESON_S4=y' \
         'CONFIG_AMLOGIC_MMC_MESON_GX=y' \
-        'CONFIG_STMMAC_ETH=y' \
-        'CONFIG_STMMAC_PLATFORM=y' \
-        'CONFIG_DWMAC_MESON=y' \
-        'CONFIG_MDIO_BUS_MUX_MESON_G12A=y' \
-        'CONFIG_AMLOGIC_MDIO_G12A=y' \
-        'CONFIG_AMLOGIC_MEDIA_MODULE=y' \
-        'CONFIG_AMLOGIC_MEDIA_UTILS=y' \
-        'CONFIG_AMLOGIC_DRM=y' \
-        'CONFIG_AMLOGIC_HDMITX=y' \
-        'CONFIG_AMLOGIC_VPU=y' \
-        'CONFIG_AMLOGIC_VOUT=y' \
-        'CONFIG_AMLOGIC_SECMON=y' \
-        'CONFIG_AMLOGIC_CPU_INFO=y' \
         'CONFIG_REGULATOR_GPIO=y' \
         '# CONFIG_COMMON_CLK_GXBB is not set' \
         '# CONFIG_COMMON_CLK_AXG is not set' \
@@ -363,6 +317,7 @@ EOF
     modDirVersion = "5.15.137";
     src = khadasSrc;
     configfile = "${kvimsConfig}/.config";
+    allowImportFromDerivation = true;
     extraMeta.branch = "5.15";
   };
 
@@ -459,10 +414,10 @@ EOF
     '';
   };
 
-  # Use vendor Khadas 5.15 kernel packages built above.
-  # Provide a 'dev' attribute pointing to the kernel's default output so external
-  # module builders (e.g. ZFS) can locate /lib/modules/${modDirVersion}/{source,build}.
-  kernelPkgs = pkgs.linuxPackagesFor (khadasKernel // { dev = khadasKernel; });
+  # Use vendor Khadas 5.15 kernel packages built above. Once
+  # allowImportFromDerivation lets linuxManualConfig see CONFIG_MODULES=y, the
+  # kernel derivation exposes proper out/dev/modules outputs by itself.
+  kernelPkgs = pkgs.linuxPackagesFor khadasKernel;
 in
 {
   nixpkgs.hostPlatform = lib.mkDefault "aarch64-linux";
@@ -506,9 +461,9 @@ in
       "arm_ffa.disable=1"
     ];
 
-    # Conservative initrd modules; harmless if not present.
-    # Kernel was built effectively monolithic (no .ko installed). Avoid initrd
-    # module-closure failures by not expecting any modules during bring-up.
+    # Keep initrd narrow; the boot-critical MMC/clock/pinctrl path is built in.
+    # Runtime devices such as Ethernet and display can load from the rootfs
+    # module tree after switch_root.
     initrd.includeDefaultModules = lib.mkForce false;
     initrd.availableKernelModules = lib.mkForce [ ];
     initrd.kernelModules = lib.mkForce [ ];
