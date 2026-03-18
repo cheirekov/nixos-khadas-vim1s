@@ -43,6 +43,14 @@ if old not in text:
     raise SystemExit("failed to patch mmc_key.c")
 path.write_text(text.replace(old, new, 1))
 PY
+    # hdmitx_common.c includes efuse.h even when CONFIG_AMLOGIC_EFUSE=n.
+    # In that case the vendor header emits non-inline fallback stubs, and
+    # GCC 13 trips -Wunused-function under the vendor Werror settings while
+    # building hdmitx_common.o. Make those stubs inline so the header stays
+    # harmless when nothing calls them.
+    substituteInPlace $out/common_drivers/drivers/efuse_unifykey/efuse.h \
+      --replace-fail 'static int __init aml_efuse_init(void)' 'static inline int aml_efuse_init(void)' \
+      --replace-fail 'static void aml_efuse_exit(void)' 'static inline void aml_efuse_exit(void)'
   '';
   localDtOverlayDir = ../files/dtb;
   dtbOverlayEnv = pkgs.writeText "kvim1s.dtb.overlay.env" ''
