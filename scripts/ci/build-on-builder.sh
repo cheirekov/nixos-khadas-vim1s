@@ -39,6 +39,18 @@ as_root() {
   fi
 }
 
+ensure_home() {
+  if [[ -n "${HOME:-}" ]]; then
+    return
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    export HOME=/root
+  else
+    export HOME="/home/$(id -un)"
+  fi
+}
+
 ensure_packages() {
   local -a pkgs
 
@@ -91,7 +103,7 @@ install_nix() {
     -e 's/curl --fail -L /curl --fail -L --progress-bar /' \
     -e 's/wget "$1" -O "$2"/wget --show-progress "$1" -O "$2"/' \
     /tmp/install-nix.sh
-  as_root /bin/sh /tmp/install-nix.sh --daemon --yes
+  as_root env HOME="${HOME}" /bin/sh /tmp/install-nix.sh --daemon --yes
 }
 
 load_nix() {
@@ -162,6 +174,7 @@ push_attic() {
   echo "ATTIC_PUSH=ok"
 }
 
+ensure_home
 ensure_packages
 install_nix
 load_nix
