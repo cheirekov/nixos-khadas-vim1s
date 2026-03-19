@@ -236,6 +236,8 @@ CONFIG_AMLOGIC_MEDIA_UTILS=m
 CONFIG_AMLOGIC_DRM=m
 CONFIG_AMLOGIC_SECMON=m
 CONFIG_AMLOGIC_CPU_INFO=m
+# CONFIG_BCMDHD is not set
+# CONFIG_AMLOGIC_NPU is not set
 
 # Fix link error from hid-core referencing uhid_hid_driver:
 # Build UHID into the kernel so hid-core can reference it.
@@ -268,6 +270,7 @@ EOF
       grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
       grep -E '^(CONFIG_MDIO|CONFIG_STMMAC_ETH|CONFIG_STMMAC_PLATFORM|CONFIG_DWMAC_MESON|CONFIG_MDIO_BUS_MUX_MESON_G12A|CONFIG_AMLOGIC_MDIO_G12A)=' .config || true
       grep -E '^(CONFIG_AMLOGIC_MEDIA_MODULE|CONFIG_AMLOGIC_MEDIA_UTILS|CONFIG_AMLOGIC_DRM|CONFIG_AMLOGIC_HDMITX|CONFIG_AMLOGIC_VPU|CONFIG_AMLOGIC_VOUT|CONFIG_AMLOGIC_SECMON|CONFIG_AMLOGIC_CPU_INFO)=' .config || true
+      grep -E '^(# CONFIG_(BCMDHD|AMLOGIC_NPU) is not set)$' .config || true
       grep -E '^(CONFIG_REGULATOR_GPIO)=' .config || true
       grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
 
@@ -301,6 +304,20 @@ EOF
       # explicit '# CONFIG_AMLOGIC_MMC_CQHCI is not set' line.
       if grep -q '^CONFIG_AMLOGIC_MMC_CQHCI=' .config; then
         echo "Unexpected kernel config: AMLOGIC_MMC_CQHCI is still enabled" >&2
+        exit 1
+      fi
+
+      # These vendor modules have broken source plumbing in the current tree:
+      # BCMDHD is missing Broadcom headers like typedefs.h, and AMLOGIC_NPU
+      # misses gc_hal.h include wiring. olddefconfig may omit the symbols
+      # entirely when dependencies are not met, so only fail if they end up
+      # explicitly enabled.
+      if grep -q '^CONFIG_BCMDHD=' .config; then
+        echo "Unexpected kernel config: BCMDHD is still enabled" >&2
+        exit 1
+      fi
+      if grep -q '^CONFIG_AMLOGIC_NPU=' .config; then
+        echo "Unexpected kernel config: AMLOGIC_NPU is still enabled" >&2
         exit 1
       fi
     '';

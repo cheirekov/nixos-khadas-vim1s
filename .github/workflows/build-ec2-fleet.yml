@@ -1,0 +1,124 @@
+name: Build on EC2 Fleet ARM
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build. Leave empty to use the ref that triggered the workflow.
+        required: false
+        default: ""
+        type: string
+      target:
+        description: Flake target to build.
+        required: true
+        default: "vim1s-sd-image"
+        type: string
+      instance_types:
+        description: Comma-separated preferred Graviton instance types offered to EC2 Fleet.
+        required: true
+        default: "c7g.4xlarge,m7g.4xlarge,m8g.4xlarge,c7g.2xlarge,m7g.2xlarge,m8g.2xlarge"
+        type: string
+      root_volume_gb:
+        description: Root EBS volume size in GiB.
+        required: true
+        default: "250"
+        type: string
+      keep_instance:
+        description: Keep the chosen EC2 instance for debugging if the workflow fails.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ec2-fleet-build
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION != '' && vars.AWS_REGION || 'eu-west-3' }}
+  EC2_AMI_SSM_PARAMETER: ${{ vars.AWS_EC2_ARM_AMI_PARAMETER != '' && vars.AWS_EC2_ARM_AMI_PARAMETER || '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64' }}
+
+jobs:
+  build:
+    name: Launch ephemeral EC2 Fleet builder
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5.1.1
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: gha-khadas-fleet-${{ github.run_id }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Resolve build metadata
+        run: |
+          set -euo pipefail
+          echo "REPO_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "REPO_URL=https://github.com/${GITHUB_REPOSITORY}.git" >> "$GITHUB_ENV"
+          echo "RAW_BUILD_SCRIPT_URL=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/$(git rev-parse HEAD)/scripts/ci/build-on-builder.sh" >> "$GITHUB_ENV"
+          echo "LOG_GROUP=/github/remote-build/${GITHUB_REPOSITORY}/${GITHUB_RUN_ID}/fleet" >> "$GITHUB_ENV"
+
+      - name: Launch EC2 Fleet
+        env:
+          INSTANCE_TYPES: ${{ inputs.instance_types }}
+          ROOT_VOLUME_GB: ${{ inputs.root_volume_gb }}
+          SUBNET_ID: ${{ vars.AWS_SUBNET_ID }}
+          SECURITY_GROUP_ID: ${{ vars.AWS_SECURITY_GROUP_ID }}
+          INSTANCE_PROFILE_NAME: ${{ vars.AWS_INSTANCE_PROFILE_NAME }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/ec2-spot-build.sh launch-fleet | tee fleet.env
+          cat fleet.env >> "$GITHUB_ENV"
+
+      - name: Wait for SSM registration
+        run: ./scripts/ci/ec2-spot-build.sh wait-ssm "${INSTANCE_ID}"
+
+      - name: Build on EC2 Fleet instance
+        env:
+          TARGET_ATTR: ${{ inputs.target }}
+          ATTIC_ENDPOINT: ${{ vars.ATTIC_ENDPOINT }}
+          ATTIC_CACHE: ${{ vars.ATTIC_CACHE }}
+          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/ec2-spot-build.sh run-build "${INSTANCE_ID}" "${LOG_GROUP}" | tee remote-build.log
+          cat fleet.env remote-build.log | grep -E '^(BUILD_RESULT|ATTIC_PUSH|COMMAND_ID|INSTANCE_ID|INSTANCE_TYPE|INSTANCE_AMI|FLEET_ID|LAUNCH_TEMPLATE_ID)=' > remote-build-summary.txt || true
+
+      - name: Upload remote build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ec2-fleet-build-logs
+          path: |
+            fleet.env
+            remote-build.log
+            remote-build-summary.txt
+
+      - name: Terminate EC2 Fleet resources
+        if: ${{ always() && !inputs.keep_instance && env.FLEET_ID != '' && env.LAUNCH_TEMPLATE_ID != '' }}
+        run: ./scripts/ci/ec2-spot-build.sh terminate-fleet "${FLEET_ID}" "${LAUNCH_TEMPLATE_ID}" "${INSTANCE_ID}"
+
+      - name: Keep EC2 Fleet instance for debugging
+        if: ${{ always() && inputs.keep_instance && env.INSTANCE_ID != '' }}
+        run: |
+          {
+            echo "Fleet builder was left running for debugging."
+            echo "instance_id=${INSTANCE_ID}"
+            echo "instance_type=${INSTANCE_TYPE}"
+            echo "fleet_id=${FLEET_ID}"
+            echo "launch_template_id=${LAUNCH_TEMPLATE_ID}"
+            echo "region=${AWS_REGION}"
+            echo "log_group=${LOG_GROUP}"
+          } | tee -a remote-build-summary.txt

@@ -1,0 +1,76 @@
+name: Build on GitHub ARM
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build. Leave empty to use the ref that triggered the workflow.
+        required: false
+        default: ""
+        type: string
+      target:
+        description: Flake target to build.
+        required: true
+        default: "vim1s-sd-image"
+        type: string
+      skip_attic_push:
+        description: Configure Attic for pulls, but do not push build results back.
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-arm-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build on ubuntu-24.04-arm
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: Setup Attic cache
+        if: ${{ vars.ATTIC_ENDPOINT != '' && vars.ATTIC_CACHE != '' }}
+        uses: ryanccn/attic-action@v0.4.1
+        with:
+          endpoint: ${{ vars.ATTIC_ENDPOINT }}
+          cache: ${{ vars.ATTIC_CACHE }}
+          token: ${{ secrets.ATTIC_TOKEN }}
+          skip-push: ${{ inputs.skip_attic_push }}
+
+      - name: Build flake target
+        run: nix build -L ".#${{ inputs.target }}" --accept-flake-config
+
+      - name: Record build summary
+        run: |
+          set -euo pipefail
+          result_path="$(readlink -f result)"
+          {
+            echo "target=${{ inputs.target }}"
+            echo "git_ref=${{ inputs.ref != '' && inputs.ref || github.ref }}"
+            echo "git_sha=$(git rev-parse HEAD)"
+            echo "result_path=${result_path}"
+            nix path-info -Sh "${result_path}"
+          } | tee build-summary.txt
+
+      - name: Upload build summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-arm-build-summary
+          path: build-summary.txt

@@ -35,6 +35,11 @@ Repository layout
 - flake.nix        — Flake outputs and sd-image wiring
 - modules/vim1s.nix — Board module: kernel, DTB build/merge, sd-image behaviors, extlinux, serial params
 - modules/uboot-vim1s.nix — U‑Boot derivation + module options and packaging
+- .github/workflows/build-gh-arm.yml — Manual GitHub Actions build on GitHub-hosted ARM
+- .github/workflows/build-ec2-spot.yml — Manual GitHub Actions build on an ephemeral EC2 Spot ARM builder
+- .github/workflows/build-ec2-fleet.yml — Manual GitHub Actions build on an ephemeral EC2 Fleet ARM builder
+- docs/REMOTE_BUILD_AWS.md — Remote build setup, AWS OIDC/IAM, Attic cache configuration, workflow usage
+- infra/aws/bootstrap-github-actions-spot-builder.sh — AWS CLI bootstrap for the GitHub OIDC role and EC2 builder profile
 - docs/BUILD_U_BOOT_EXT_ON_UBUNTU.md — How to build a clean neutral u-boot.ext on an Ubuntu host
 - uboot/kvim1s-extlinux-clean.fragment — Config fragment to disable Ubuntu helpers and keep extlinux, for reference
 
@@ -45,6 +50,22 @@ Build prerequisites
   - x86_64-linux: enable qemu-user/binfmt for aarch64:
     - Debian/Ubuntu: sudo apt install qemu-user-static binfmt-support && sudo update-binfmts --enable qemu-aarch64
     - NixOS: add boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+
+Remote build paths
+- Local build:
+  - nix build -L .#vim1s-sd-image --accept-flake-config
+- GitHub-hosted ARM:
+  - Manual workflow: `.github/workflows/build-gh-arm.yml`
+  - Best zero-infrastructure option for this public repository.
+- AWS EC2 Spot ARM:
+  - Manual workflow: `.github/workflows/build-ec2-spot.yml`
+  - GitHub-hosted runner is only the control plane; the actual build runs on an ephemeral Graviton Spot instance over SSM.
+- AWS EC2 Fleet ARM:
+  - Manual workflow: `.github/workflows/build-ec2-fleet.yml`
+  - Same ephemeral builder model, but AWS chooses among multiple Spot pools with `price-capacity-optimized`.
+- Full setup and bootstrap:
+  - See `docs/REMOTE_BUILD_AWS.md`
+  - Bootstrap script: `infra/aws/bootstrap-github-actions-spot-builder.sh`
 
 How to build the SD image
 - nix build -L .#vim1s-sd-image --accept-flake-config
