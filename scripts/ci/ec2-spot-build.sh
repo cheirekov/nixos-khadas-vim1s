@@ -8,6 +8,7 @@ Usage:
   ec2-spot-build.sh launch-fleet
   ec2-spot-build.sh wait-ssm <instance-id>
   ec2-spot-build.sh run-build <instance-id> <log-group>
+  ec2-spot-build.sh salvage-cache <instance-id> [window-minutes]
   ec2-spot-build.sh terminate <instance-id>
   ec2-spot-build.sh terminate-fleet <fleet-id> <launch-template-id> [instance-id]
 EOF
@@ -255,6 +256,31 @@ wait_ssm() {
   return 1
 }
 
+wait_for_ssm_agent_update() {
+  local instance_id="${1:?instance-id is required}"
+  local deadline update_in_progress
+
+  deadline=$((SECONDS + 300))
+  while (( SECONDS < deadline )); do
+    update_in_progress="$(aws ssm list-command-invocations \
+      --region "${AWS_REGION}" \
+      --details \
+      --filters "Key=InstanceId,Values=${instance_id}" \
+      --query "length(CommandInvocations[?DocumentName=='AWS-UpdateSSMAgent' && (Status=='Pending' || Status=='InProgress' || Status=='Delayed')])" \
+      --output text 2>/dev/null || echo 0)"
+
+    if [[ -z "${update_in_progress}" || "${update_in_progress}" == "0" ]]; then
+      return 0
+    fi
+
+    log "waiting for AWS-UpdateSSMAgent to settle on ${instance_id}"
+    sleep 10
+  done
+
+  log "timed out waiting for AWS-UpdateSSMAgent to settle on ${instance_id}; continuing anyway"
+  return 0
+}
+
 fetch_remote_log_delta() {
   local instance_id="${1:?instance-id is required}"
   local start_offset="${2:?start-offset is required}"
@@ -455,6 +481,56 @@ run_build() {
   return "${build_exit_code}"
 }
 
+salvage_cache() {
+  local instance_id="${1:?instance-id is required}"
+  local window_minutes="${2:-240}"
+  local tmp_commands tmp_params
+
+  require_env AWS_REGION
+
+  tmp_commands="$(mktemp)"
+  tmp_params="$(mktemp)"
+
+  {
+    echo "set -euo pipefail"
+    printf 'export AWS_REGION=%q\n' "${AWS_REGION}"
+    printf 'export NIX_CACHE_REGION=%q\n' "${NIX_CACHE_REGION:-${AWS_REGION}}"
+    printf 'export NIX_CACHE_BUCKET_NAME=%q\n' "${NIX_CACHE_BUCKET_NAME:-nix-cache-vim1s-${AWS_REGION}}"
+    printf 'export NIX_BINARY_CACHE_SECRET_KEY=%q\n' "${NIX_BINARY_CACHE_SECRET_KEY:-}"
+    printf 'WINDOW_MINUTES=%q\n' "${window_minutes}"
+    cat <<'EOF'
+NIX_BIN="$(command -v nix)"
+if [[ -z "${NIX_BIN}" ]]; then
+  NIX_BIN=/nix/var/nix/profiles/default/bin/nix
+fi
+
+CACHE_URI="s3://${NIX_CACHE_BUCKET_NAME}?scheme=https&region=${NIX_CACHE_REGION}&secret-key=${NIX_BINARY_CACHE_SECRET_KEY}"
+TMP_PATHS=/tmp/nixos-khadas-salvage-paths.txt
+
+find /nix/store -maxdepth 1 -mindepth 1 -mmin "-${WINDOW_MINUTES}" ! -name '*.drv' | sort -u > "${TMP_PATHS}"
+echo "SALVAGE_PATH_COUNT=$(wc -l < "${TMP_PATHS}")"
+sed -n '1,20p' "${TMP_PATHS}"
+
+if [[ -s "${TMP_PATHS}" ]]; then
+  xargs -r -n 64 "${NIX_BIN}" --extra-experimental-features 'nix-command flakes' copy -L --to "${CACHE_URI}" < "${TMP_PATHS}"
+fi
+EOF
+  } > "${tmp_commands}"
+
+  jq -n --rawfile lines "${tmp_commands}" '{commands: ($lines | split("\n") | map(select(length > 0)))}' > "${tmp_params}"
+
+  aws ssm send-command \
+    --region "${AWS_REGION}" \
+    --instance-ids "${instance_id}" \
+    --document-name 'AWS-RunShellScript' \
+    --comment "Salvage recent store paths to S3 cache" \
+    --parameters "file://${tmp_params}" \
+    --query 'Command.CommandId' \
+    --output text
+
+  rm -f "${tmp_commands}" "${tmp_params}"
+}
+
 terminate() {
   local instance_id="${1:?instance-id is required}"
   aws ec2 terminate-instances --region "${AWS_REGION}" --instance-ids "${instance_id}" >/dev/null
@@ -492,9 +568,13 @@ case "${subcommand}" in
     ;;
   wait-ssm)
     wait_ssm "$@"
+    wait_for_ssm_agent_update "$@"
     ;;
   run-build)
     run_build "$@"
+    ;;
+  salvage-cache)
+    salvage_cache "$@"
     ;;
   terminate)
     terminate "$@"

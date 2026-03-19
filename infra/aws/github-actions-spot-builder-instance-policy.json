@@ -19,17 +19,25 @@
       ]
     },
     {
-      "Sid": "CloudWatchLogsForRemoteBuildOutput",
+      "Sid": "CloudWatchLogsDescribeForRemoteBuildOutput",
       "Effect": "Allow",
       "Action": [
-        "logs:CreateLogStream",
         "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsWriteForRemoteBuildOutput",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],
       "Resource": [
         "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/github/remote-build/*",
-        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/github/remote-build/*:log-stream:*"
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/github/remote-build/*:*"
       ]
     }
   ]

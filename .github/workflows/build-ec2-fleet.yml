@@ -90,11 +90,23 @@ jobs:
           TARGET_ATTR: ${{ inputs.target }}
           NIX_CACHE_REGION: ${{ env.AWS_REGION }}
           NIX_CACHE_BUCKET_NAME: nix-cache-vim1s-eu-west-3
+          NIX_CACHE_SIGNING_KEY_NAME: nix-cache-vim1s-eu-west-3
           NIX_BINARY_CACHE_SECRET_KEY: ${{ secrets.NIX_BINARY_CACHE_SECRET_KEY }}
         run: |
           set -euo pipefail
           ./scripts/ci/ec2-spot-build.sh run-build "${INSTANCE_ID}" "${LOG_GROUP}" | tee remote-build.log
           cat fleet.env remote-build.log | grep -E '^(BUILD_RESULT|CACHE_PUSH|COMMAND_ID|INSTANCE_ID|INSTANCE_TYPE|INSTANCE_AMI|FLEET_ID|LAUNCH_TEMPLATE_ID)=' > remote-build-summary.txt || true
+
+      - name: Salvage recent store paths to S3 cache on failure
+        if: ${{ failure() && !inputs.keep_instance && env.INSTANCE_ID != '' }}
+        env:
+          NIX_CACHE_REGION: ${{ env.AWS_REGION }}
+          NIX_CACHE_BUCKET_NAME: nix-cache-vim1s-eu-west-3
+          NIX_CACHE_SIGNING_KEY_NAME: nix-cache-vim1s-eu-west-3
+          NIX_BINARY_CACHE_SECRET_KEY: ${{ secrets.NIX_BINARY_CACHE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          ./scripts/ci/ec2-spot-build.sh salvage-cache "${INSTANCE_ID}" 360 | tee salvage-cache.log || true
 
       - name: Upload remote build logs
         if: always()
@@ -105,6 +117,7 @@ jobs:
             fleet.env
             remote-build.log
             remote-build-summary.txt
+            salvage-cache.log
 
       - name: Terminate EC2 Fleet resources
         if: ${{ always() && !inputs.keep_instance && env.FLEET_ID != '' && env.LAUNCH_TEMPLATE_ID != '' }}

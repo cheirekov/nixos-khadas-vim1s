@@ -7,6 +7,7 @@ REPO_SHA="${REPO_SHA:?REPO_SHA is required}"
 WORK_ROOT="${WORK_ROOT:-/var/tmp/nixos-khadas-vim1s-build}"
 NIX_CACHE_REGION="${NIX_CACHE_REGION:-${AWS_REGION:-eu-west-3}}"
 NIX_CACHE_BUCKET_NAME="${NIX_CACHE_BUCKET_NAME:-nix-cache-vim1s-${NIX_CACHE_REGION}}"
+NIX_CACHE_SIGNING_KEY_NAME="${NIX_CACHE_SIGNING_KEY_NAME:-${NIX_CACHE_BUCKET_NAME}}"
 NIX_BINARY_CACHE_SECRET_KEY="${NIX_BINARY_CACHE_SECRET_KEY:-}"
 NIX_BINARY_CACHE_SECRET_KEY_FILE=""
 POST_BUILD_HOOK_FILE=""
@@ -129,16 +130,43 @@ s3_cache_store_url() {
     "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
 }
 
+normalize_binary_cache_signing_key() {
+  local key="${1:-}"
+
+  key="${key//$'\r'/}"
+  key="${key#"${key%%[![:space:]]*}"}"
+  key="${key%"${key##*[![:space:]]}"}"
+
+  if [[ -z "${key}" ]]; then
+    echo ""
+    return 0
+  fi
+
+  if [[ "${key}" != *:* ]]; then
+    key="${NIX_CACHE_SIGNING_KEY_NAME}:${key}"
+  fi
+
+  printf '%s\n' "${key}"
+}
+
 setup_binary_cache_signing_key() {
+  local normalized_key
+
   if [[ -z "${NIX_BINARY_CACHE_SECRET_KEY}" ]]; then
     log "binary cache signing key not provided, cache push will be skipped"
+    return
+  fi
+
+  normalized_key="$(normalize_binary_cache_signing_key "${NIX_BINARY_CACHE_SECRET_KEY}")"
+  if [[ -z "${normalized_key}" ]]; then
+    log "binary cache signing key was empty after normalization, cache push will be skipped"
     return
   fi
 
   mkdir -p "${WORK_ROOT}/secrets"
   chmod 700 "${WORK_ROOT}/secrets"
   NIX_BINARY_CACHE_SECRET_KEY_FILE="${WORK_ROOT}/secrets/nix-cache-private-key.pem"
-  printf '%s\n' "${NIX_BINARY_CACHE_SECRET_KEY}" > "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
+  printf '%s\n' "${normalized_key}" > "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
   chmod 600 "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
 }
 
@@ -161,7 +189,7 @@ if [[ -z "\${OUT_PATHS:-}" ]]; then
 fi
 
 echo "[post-build-hook] pushing completed outputs for \${DRV_PATH:-unknown}" >&2
-if ! env -u NIX_CONFIG "${nix_bin}" copy -L --to "$(s3_cache_store_url)" \${OUT_PATHS}; then
+if ! env -u NIX_CONFIG "${nix_bin}" --extra-experimental-features 'nix-command flakes' copy -L --to "$(s3_cache_store_url)" \${OUT_PATHS}; then
   echo "[post-build-hook] warning: cache push failed for \${DRV_PATH:-unknown}" >&2
 fi
 exit 0
@@ -210,8 +238,12 @@ push_binary_cache() {
   fi
 
   log "pushing ${result_path} to S3 binary cache ${NIX_CACHE_BUCKET_NAME}"
-  nix copy -L --to "$(s3_cache_store_url)" "${result_path}"
-  echo "CACHE_PUSH=ok"
+  if nix copy -L --to "$(s3_cache_store_url)" "${result_path}"; then
+    echo "CACHE_PUSH=ok"
+  else
+    log "warning: failed to push ${result_path} to S3 binary cache ${NIX_CACHE_BUCKET_NAME}"
+    echo "CACHE_PUSH=failed"
+  fi
 }
 
 ensure_home
