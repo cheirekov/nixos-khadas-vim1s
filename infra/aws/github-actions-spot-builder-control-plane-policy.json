@@ -65,6 +65,23 @@
         "iam:PassRole"
       ],
       "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/<BUILDER_INSTANCE_ROLE_NAME>"
+    },
+    {
+      "Sid": "S3BinaryCacheReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:AbortMultipartUpload",
+        "s3:GetBucketLocation",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:ListBucketMultipartUploads",
+        "s3:ListMultipartUploadParts",
+        "s3:PutObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::<NIX_CACHE_BUCKET_NAME>",
+        "arn:aws:s3:::<NIX_CACHE_BUCKET_NAME>/*"
+      ]
     }
   ]
 }

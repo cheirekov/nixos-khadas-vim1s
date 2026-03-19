@@ -5,9 +5,10 @@ TARGET_ATTR="${TARGET_ATTR:?TARGET_ATTR is required}"
 REPO_URL="${REPO_URL:?REPO_URL is required}"
 REPO_SHA="${REPO_SHA:?REPO_SHA is required}"
 WORK_ROOT="${WORK_ROOT:-/var/tmp/nixos-khadas-vim1s-build}"
-ATTIC_ENDPOINT="${ATTIC_ENDPOINT:-}"
-ATTIC_CACHE="${ATTIC_CACHE:-}"
-ATTIC_TOKEN="${ATTIC_TOKEN:-}"
+NIX_CACHE_REGION="${NIX_CACHE_REGION:-${AWS_REGION:-eu-west-3}}"
+NIX_CACHE_BUCKET_NAME="${NIX_CACHE_BUCKET_NAME:-nix-cache-vim1s-${NIX_CACHE_REGION}}"
+NIX_BINARY_CACHE_SECRET_KEY="${NIX_BINARY_CACHE_SECRET_KEY:-}"
+NIX_BINARY_CACHE_SECRET_KEY_FILE=""
 
 log() {
   printf '[builder] %s\n' "$*"
@@ -120,15 +121,24 @@ load_nix() {
   fi
 }
 
-setup_attic() {
-  if [[ -z "${ATTIC_ENDPOINT}" || -z "${ATTIC_CACHE}" || -z "${ATTIC_TOKEN}" ]]; then
-    log "Attic configuration incomplete, skipping Attic setup"
+s3_cache_store_url() {
+  printf 's3://%s?region=%s&compression=zstd&parallel-compression=true&write-nar-listing=true&secret-key=%s' \
+    "${NIX_CACHE_BUCKET_NAME}" \
+    "${NIX_CACHE_REGION}" \
+    "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
+}
+
+setup_binary_cache_signing_key() {
+  if [[ -z "${NIX_BINARY_CACHE_SECRET_KEY}" ]]; then
+    log "binary cache signing key not provided, cache push will be skipped"
     return
   fi
 
-  log "configuring Attic cache"
-  nix run github:zhaofengli/attic#default -- login --set-default ci "${ATTIC_ENDPOINT}" "${ATTIC_TOKEN}"
-  nix run github:zhaofengli/attic#default -- use "${ATTIC_CACHE}"
+  mkdir -p "${WORK_ROOT}/secrets"
+  chmod 700 "${WORK_ROOT}/secrets"
+  NIX_BINARY_CACHE_SECRET_KEY_FILE="${WORK_ROOT}/secrets/nix-cache-private-key.pem"
+  printf '%s\n' "${NIX_BINARY_CACHE_SECRET_KEY}" > "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
+  chmod 600 "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
 }
 
 clone_repo() {
@@ -155,11 +165,11 @@ build_target() {
   } | tee "${WORK_ROOT}/build-summary.txt"
 }
 
-push_attic() {
+push_binary_cache() {
   local result_path
 
-  if [[ -z "${ATTIC_ENDPOINT}" || -z "${ATTIC_CACHE}" || -z "${ATTIC_TOKEN}" ]]; then
-    echo "ATTIC_PUSH=skipped"
+  if [[ -z "${NIX_BINARY_CACHE_SECRET_KEY_FILE}" ]]; then
+    echo "CACHE_PUSH=skipped"
     return
   fi
 
@@ -169,16 +179,16 @@ push_attic() {
     exit 1
   fi
 
-  log "pushing ${result_path} to Attic cache ${ATTIC_CACHE}"
-  nix run github:zhaofengli/attic#default -- push "${ATTIC_CACHE}" "${result_path}"
-  echo "ATTIC_PUSH=ok"
+  log "pushing ${result_path} to S3 binary cache ${NIX_CACHE_BUCKET_NAME}"
+  nix copy -L --to "$(s3_cache_store_url)" "${result_path}"
+  echo "CACHE_PUSH=ok"
 }
 
 ensure_home
 ensure_packages
 install_nix
 load_nix
-setup_attic
+setup_binary_cache_signing_key
 clone_repo
 build_target
-push_attic
+push_binary_cache

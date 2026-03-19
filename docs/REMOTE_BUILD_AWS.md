@@ -6,6 +6,7 @@ This repository now has three manual build paths for repeated kernel bring-up wo
   - Runs directly on GitHub-hosted `ubuntu-24.04-arm`.
   - Best zero-infrastructure option.
   - Good baseline because this public repository gets free standard GitHub-hosted ARM runners.
+  - Pushes finished results directly into an S3-backed Nix binary cache.
 
 - `Build on EC2 Spot ARM`
   - Uses a normal GitHub-hosted runner only as a control plane.
@@ -46,7 +47,7 @@ This keeps GitHub runner administration out of the design entirely:
 
 - Faster:
   - `Build on EC2 Spot ARM`
-  - Use Graviton Spot in `eu-west-3` to stay near the Attic-backed S3 cache.
+  - Current default region is `eu-west-3`, which had the best sampled `c7g.4xlarge` Spot price during setup.
   - Prefer compute-optimized Graviton families first, then general-purpose fallback.
 
 - More launch-resilient:
@@ -55,8 +56,9 @@ This keeps GitHub runner administration out of the design entirely:
   - Better than manual fallback when one preferred type is frequently unavailable.
 
 - Region choice:
-  - Default `eu-west-3` is intentional because the Attic-backed S3 bucket is there.
-  - Cross-region cache traffic adds both latency and transfer cost.
+  - The cache bucket is named `nix-cache-vim1s-<region>`.
+  - The current bucket is `nix-cache-vim1s-eu-west-3`.
+  - Keep the bucket in the same region as the builder whenever you create another regional cache, or S3 transfer latency will erase most of the benefit.
 
 - Spot guidance:
   - AWS recommends flexibility across instance types and Availability Zones, Spot placement scores, and price-capacity-optimized allocation.
@@ -78,17 +80,11 @@ Repository variables:
 - `AWS_EC2_ARM_AMI_PARAMETER`
   - Optional override. Default:
     - `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64`
-- `ATTIC_ENDPOINT`
-  - Base URL of the Attic server.
-- `ATTIC_CACHE`
-  - Cache name.
-
-Repository secrets:
-
 - `AWS_ROLE_TO_ASSUME`
   - ARN of the AWS IAM role that GitHub Actions assumes over OIDC.
-- `ATTIC_TOKEN`
-  - Token that can read and write the Attic cache.
+- `NIX_BINARY_CACHE_SECRET_KEY`
+  - Contents of the Nix binary cache private key file.
+  - This key signs `.narinfo` metadata before objects are uploaded to S3.
 
 ## AWS setup
 
@@ -131,6 +127,8 @@ Ready-to-edit templates are included in:
 
 - [github-actions-spot-builder-trust-policy.json](/home/yc/work/khadas/ai/infra/aws/github-actions-spot-builder-trust-policy.json)
 - [github-actions-spot-builder-control-plane-policy.json](/home/yc/work/khadas/ai/infra/aws/github-actions-spot-builder-control-plane-policy.json)
+- [github-actions-spot-builder-instance-policy.json](/home/yc/work/khadas/ai/infra/aws/github-actions-spot-builder-instance-policy.json)
+- [nix-binary-cache-public-read-policy.json](/home/yc/work/khadas/ai/infra/aws/nix-binary-cache-public-read-policy.json)
 - [bootstrap-github-actions-spot-builder.sh](/home/yc/work/khadas/ai/infra/aws/bootstrap-github-actions-spot-builder.sh)
 
 Suggested permissions for the control-plane role:
@@ -167,7 +165,15 @@ At minimum it needs:
 
 - `AmazonSSMManagedInstanceCore`
 
-That is enough for the builder to register with SSM and receive the build command.
+For direct S3 cache pushes it also needs S3 permissions on the cache bucket:
+
+- `s3:GetBucketLocation`
+- `s3:ListBucket`
+- `s3:GetObject`
+- `s3:PutObject`
+- `s3:AbortMultipartUpload`
+- `s3:ListBucketMultipartUploads`
+- `s3:ListMultipartUploadParts`
 
 ### 3a. Bootstrap with AWS CLI
 
@@ -187,7 +193,10 @@ What it does:
 - applies the inline control-plane policy used by the workflows
 - creates the EC2 builder instance role
 - attaches `AmazonSSMManagedInstanceCore`
+- attaches the builder S3 cache policy
 - creates the instance profile and adds the builder role to it
+- creates the regional S3 binary-cache bucket if it does not exist
+- applies public-read + bucket encryption configuration
 
 What it does not do:
 
@@ -203,8 +212,8 @@ The builder instance needs outbound access to:
 
 - GitHub
 - Nix substituters
-- your Attic endpoint
-- any S3 bucket backing your cache
+- the public S3 binary cache endpoint
+- AWS S3 for cache uploads
 
 Inbound access is not required for this workflow.
 
@@ -266,5 +275,6 @@ Inputs:
 - The EC2 Fleet workflow uses a temporary launch template plus an `instant` EC2 Fleet request with Spot `price-capacity-optimized`.
 - The GitHub ARM workflow uses:
   - `cachix/install-nix-action@v31`
-  - `ryanccn/attic-action@v0.4.1`
+  - `aws-actions/configure-aws-credentials@v5.1.1`
+- The GitHub ARM, EC2 Spot, and EC2 Fleet workflows all push finished results with `nix copy --to 's3://…'`.
 - The EC2 Spot and EC2 Fleet workflows use plain AWS OIDC + SSM and do not register a GitHub self-hosted runner.

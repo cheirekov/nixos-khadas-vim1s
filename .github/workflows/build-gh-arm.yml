@@ -13,13 +13,14 @@ on:
         required: true
         default: "vim1s-sd-image"
         type: string
-      skip_attic_push:
-        description: Configure Attic for pulls, but do not push build results back.
+      skip_cache_push:
+        description: Do not push the completed build result into the S3 Nix binary cache.
         required: true
         default: false
         type: boolean
 
 permissions:
+  id-token: write
   contents: read
 
 concurrency:
@@ -45,17 +46,43 @@ jobs:
           extra_nix_config: |
             accept-flake-config = true
 
-      - name: Setup Attic cache
-        if: ${{ vars.ATTIC_ENDPOINT != '' && vars.ATTIC_CACHE != '' }}
-        uses: ryanccn/attic-action@v0.4.1
-        with:
-          endpoint: ${{ vars.ATTIC_ENDPOINT }}
-          cache: ${{ vars.ATTIC_CACHE }}
-          token: ${{ secrets.ATTIC_TOKEN }}
-          skip-push: ${{ inputs.skip_attic_push }}
-
       - name: Build flake target
         run: nix build -L ".#${{ inputs.target }}" --accept-flake-config
+
+      - name: Configure AWS credentials for cache push
+        if: ${{ !inputs.skip_cache_push }}
+        uses: aws-actions/configure-aws-credentials@v5.1.1
+        with:
+          aws-region: eu-west-3
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-session-name: gha-khadas-cache-${{ github.run_id }}
+          mask-aws-account-id: true
+          unset-current-credentials: true
+
+      - name: Materialize cache signing key
+        if: ${{ !inputs.skip_cache_push }}
+        run: |
+          set -euo pipefail
+          key_file="$RUNNER_TEMP/nix-cache-private-key.pem"
+          umask 077
+          cat > "${key_file}" <<'EOF'
+          ${{ secrets.NIX_BINARY_CACHE_SECRET_KEY }}
+          EOF
+          echo "NIX_BINARY_CACHE_SECRET_KEY_FILE=${key_file}" >> "$GITHUB_ENV"
+
+      - name: Push build result to S3 Nix cache
+        if: ${{ !inputs.skip_cache_push }}
+        run: |
+          set -euo pipefail
+          result_path="$(readlink -f result)"
+          nix copy -L \
+            --to "s3://nix-cache-vim1s-eu-west-3?region=eu-west-3&compression=zstd&parallel-compression=true&write-nar-listing=true&secret-key=${NIX_BINARY_CACHE_SECRET_KEY_FILE}" \
+            "${result_path}"
+          echo "CACHE_PUSH=ok" >> "$GITHUB_ENV"
+
+      - name: Mark cache push skipped
+        if: ${{ inputs.skip_cache_push }}
+        run: echo "CACHE_PUSH=skipped" >> "$GITHUB_ENV"
 
       - name: Record build summary
         run: |
@@ -66,6 +93,7 @@ jobs:
             echo "git_ref=${{ inputs.ref != '' && inputs.ref || github.ref }}"
             echo "git_sha=$(git rev-parse HEAD)"
             echo "result_path=${result_path}"
+            echo "cache_push=${CACHE_PUSH:-unknown}"
             nix path-info -Sh "${result_path}"
           } | tee build-summary.txt
 

@@ -38,7 +38,7 @@ Repository layout
 - .github/workflows/build-gh-arm.yml — Manual GitHub Actions build on GitHub-hosted ARM
 - .github/workflows/build-ec2-spot.yml — Manual GitHub Actions build on an ephemeral EC2 Spot ARM builder
 - .github/workflows/build-ec2-fleet.yml — Manual GitHub Actions build on an ephemeral EC2 Fleet ARM builder
-- docs/REMOTE_BUILD_AWS.md — Remote build setup, AWS OIDC/IAM, Attic cache configuration, workflow usage
+- docs/REMOTE_BUILD_AWS.md — Remote build setup, AWS OIDC/IAM, direct S3 Nix cache configuration, workflow usage
 - infra/aws/bootstrap-github-actions-spot-builder.sh — AWS CLI bootstrap for the GitHub OIDC role and EC2 builder profile
 - docs/BUILD_U_BOOT_EXT_ON_UBUNTU.md — How to build a clean neutral u-boot.ext on an Ubuntu host
 - uboot/kvim1s-extlinux-clean.fragment — Config fragment to disable Ubuntu helpers and keep extlinux, for reference
@@ -63,6 +63,9 @@ Remote build paths
 - AWS EC2 Fleet ARM:
   - Manual workflow: `.github/workflows/build-ec2-fleet.yml`
   - Same ephemeral builder model, but AWS chooses among multiple Spot pools with `price-capacity-optimized`.
+- Shared binary cache:
+  - Build results are pushed directly to the public S3-backed Nix cache at `https://nix-cache-vim1s-eu-west-3.s3.eu-west-3.amazonaws.com`
+  - Clients trust the cache via the flake’s `nixConfig` public key.
 - Full setup and bootstrap:
   - See `docs/REMOTE_BUILD_AWS.md`
   - Bootstrap script: `infra/aws/bootstrap-github-actions-spot-builder.sh`

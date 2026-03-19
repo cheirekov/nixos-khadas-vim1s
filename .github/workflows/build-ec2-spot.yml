@@ -88,13 +88,13 @@ jobs:
       - name: Build on EC2
         env:
           TARGET_ATTR: ${{ inputs.target }}
-          ATTIC_ENDPOINT: ${{ vars.ATTIC_ENDPOINT }}
-          ATTIC_CACHE: ${{ vars.ATTIC_CACHE }}
-          ATTIC_TOKEN: ${{ secrets.ATTIC_TOKEN }}
+          NIX_CACHE_REGION: ${{ env.AWS_REGION }}
+          NIX_CACHE_BUCKET_NAME: nix-cache-vim1s-eu-west-3
+          NIX_BINARY_CACHE_SECRET_KEY: ${{ secrets.NIX_BINARY_CACHE_SECRET_KEY }}
         run: |
           set -euo pipefail
           ./scripts/ci/ec2-spot-build.sh run-build "${INSTANCE_ID}" "${LOG_GROUP}" | tee remote-build.log
-          cat launch.env remote-build.log | grep -E '^(BUILD_RESULT|ATTIC_PUSH|COMMAND_ID|INSTANCE_ID|INSTANCE_TYPE|INSTANCE_AMI)=' > remote-build-summary.txt || true
+          cat launch.env remote-build.log | grep -E '^(BUILD_RESULT|CACHE_PUSH|COMMAND_ID|INSTANCE_ID|INSTANCE_TYPE|INSTANCE_AMI)=' > remote-build-summary.txt || true
 
       - name: Upload remote build logs
         if: always()

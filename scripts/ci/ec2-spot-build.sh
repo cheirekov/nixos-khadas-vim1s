@@ -255,10 +255,72 @@ wait_ssm() {
   return 1
 }
 
+fetch_remote_log_delta() {
+  local instance_id="${1:?instance-id is required}"
+  local start_offset="${2:?start-offset is required}"
+  local tmp_commands tmp_params tmp_status command_id status
+
+  tmp_commands="$(mktemp)"
+  tmp_params="$(mktemp)"
+  tmp_status="$(mktemp)"
+
+  {
+    echo "set -euo pipefail"
+    printf 'START_OFFSET=%q\n' "${start_offset}"
+    cat <<'EOF'
+LOGFILE=/var/tmp/nixos-khadas-vim1s-build/remote-build.log
+if [[ -f "${LOGFILE}" ]]; then
+  LOG_SIZE="$(wc -c < "${LOGFILE}")"
+  echo "__REMOTE_LOG_SIZE__=${LOG_SIZE}"
+  if (( START_OFFSET <= LOG_SIZE )); then
+    tail -c "+${START_OFFSET}" "${LOGFILE}"
+  fi
+else
+  echo "__REMOTE_LOG_SIZE__=0"
+fi
+EOF
+  } > "${tmp_commands}"
+
+  jq -n --rawfile lines "${tmp_commands}" '{commands: ($lines | split("\n") | map(select(length > 0)))}' > "${tmp_params}"
+
+  if ! command_id="$(aws ssm send-command \
+    --region "${AWS_REGION}" \
+    --instance-ids "${instance_id}" \
+    --document-name 'AWS-RunShellScript' \
+    --comment 'Read remote build log tail' \
+    --parameters "file://${tmp_params}" \
+    --query 'Command.CommandId' \
+    --output text)"; then
+    rm -f "${tmp_commands}" "${tmp_params}" "${tmp_status}"
+    return 1
+  fi
+
+  for _ in $(seq 1 20); do
+    if aws ssm get-command-invocation \
+      --region "${AWS_REGION}" \
+      --command-id "${command_id}" \
+      --instance-id "${instance_id}" \
+      --output json > "${tmp_status}" 2>/dev/null; then
+      status="$(jq -r '.Status // empty' "${tmp_status}")"
+      case "${status}" in
+        Success|Cancelled|Cancelling|Failed|TimedOut|DeliveryTimedOut|ExecutionTimedOut)
+          break
+          ;;
+      esac
+    fi
+    sleep 1
+  done
+
+  jq -r '.StandardOutputContent // ""' "${tmp_status}"
+  rm -f "${tmp_commands}" "${tmp_params}" "${tmp_status}"
+}
+
 run_build() {
   local instance_id="${1:?instance-id is required}"
   local log_group="${2:?log-group is required}"
-  local command_id status stdout stderr tail_pid="" tmp_commands tmp_params
+  local command_id status stdout stderr tail_pid="" tmp_commands tmp_params tmp_status tmp_stdout tmp_stderr
+  local last_stdout_size=0 last_stderr_size=0 current_stdout_size current_stderr_size
+  local last_remote_log_offset=1 remote_log_output remote_log_size remote_log_payload
 
   require_env AWS_REGION RAW_BUILD_SCRIPT_URL REPO_URL REPO_SHA TARGET_ATTR
 
@@ -267,18 +329,29 @@ run_build() {
 
   tmp_commands="$(mktemp)"
   tmp_params="$(mktemp)"
+  tmp_status="$(mktemp)"
+  tmp_stdout="$(mktemp)"
+  tmp_stderr="$(mktemp)"
 
   {
     echo "set -euo pipefail"
     printf 'export TARGET_ATTR=%q\n' "${TARGET_ATTR}"
     printf 'export REPO_URL=%q\n' "${REPO_URL}"
     printf 'export REPO_SHA=%q\n' "${REPO_SHA}"
-    printf 'export ATTIC_ENDPOINT=%q\n' "${ATTIC_ENDPOINT:-}"
-    printf 'export ATTIC_CACHE=%q\n' "${ATTIC_CACHE:-}"
-    printf 'export ATTIC_TOKEN=%q\n' "${ATTIC_TOKEN:-}"
+    printf 'export AWS_REGION=%q\n' "${AWS_REGION}"
+    printf 'export NIX_CACHE_REGION=%q\n' "${NIX_CACHE_REGION:-${AWS_REGION}}"
+    printf 'export NIX_CACHE_BUCKET_NAME=%q\n' "${NIX_CACHE_BUCKET_NAME:-nix-cache-vim1s-${AWS_REGION}}"
+    printf 'export NIX_BINARY_CACHE_SECRET_KEY=%q\n' "${NIX_BINARY_CACHE_SECRET_KEY:-}"
     printf 'curl --fail --location --progress-bar %q -o /tmp/build-on-builder.sh\n' "${RAW_BUILD_SCRIPT_URL}"
     echo "chmod +x /tmp/build-on-builder.sh"
-    echo "/tmp/build-on-builder.sh"
+    echo "mkdir -p /var/tmp/nixos-khadas-vim1s-build"
+    echo 'LOGFILE=/var/tmp/nixos-khadas-vim1s-build/remote-build.log'
+    echo 'echo "[ssm] streaming remote build to ${LOGFILE}"'
+    echo 'if command -v stdbuf >/dev/null 2>&1; then'
+    echo '  stdbuf -oL -eL /tmp/build-on-builder.sh 2>&1 | tee "${LOGFILE}"'
+    echo 'else'
+    echo '  /tmp/build-on-builder.sh 2>&1 | tee "${LOGFILE}"'
+    echo 'fi'
   } > "${tmp_commands}"
 
   jq -n --rawfile lines "${tmp_commands}" '{commands: ($lines | split("\n") | map(select(length > 0)))}' > "${tmp_params}"
@@ -298,15 +371,45 @@ run_build() {
 
   aws logs tail "${log_group}" --region "${AWS_REGION}" --since 1m --follow --format short &
   tail_pid=$!
-  trap '[[ -n "${tail_pid:-}" ]] && kill "${tail_pid}" 2>/dev/null || true' EXIT
+  trap '[[ -n "${tail_pid:-}" ]] && kill "${tail_pid}" 2>/dev/null || true; rm -f "${tmp_commands:-}" "${tmp_params:-}" "${tmp_status:-}" "${tmp_stdout:-}" "${tmp_stderr:-}"' EXIT
 
   while true; do
-    status="$(aws ssm get-command-invocation \
+    if ! aws ssm get-command-invocation \
       --region "${AWS_REGION}" \
       --command-id "${command_id}" \
       --instance-id "${instance_id}" \
-      --query 'Status' \
-      --output text 2>/dev/null || true)"
+      --output json > "${tmp_status}" 2>/dev/null; then
+      sleep 15
+      continue
+    fi
+
+    status="$(jq -r '.Status // empty' "${tmp_status}")"
+
+    jq -r '.StandardOutputContent // ""' "${tmp_status}" > "${tmp_stdout}"
+    current_stdout_size="$(wc -c < "${tmp_stdout}")"
+    if (( current_stdout_size > last_stdout_size )) && (( last_remote_log_offset == 1 )); then
+      tail -c "+$((last_stdout_size + 1))" "${tmp_stdout}"
+    fi
+    last_stdout_size=${current_stdout_size}
+
+    jq -r '.StandardErrorContent // ""' "${tmp_status}" > "${tmp_stderr}"
+    current_stderr_size="$(wc -c < "${tmp_stderr}")"
+    if (( current_stderr_size > last_stderr_size )) && (( last_remote_log_offset == 1 )); then
+      tail -c "+$((last_stderr_size + 1))" "${tmp_stderr}" >&2
+    fi
+    last_stderr_size=${current_stderr_size}
+
+    if remote_log_output="$(fetch_remote_log_delta "${instance_id}" "${last_remote_log_offset}" 2>/dev/null)"; then
+      remote_log_size="$(sed -n '1s/^__REMOTE_LOG_SIZE__=//p' <<<"${remote_log_output}")"
+      remote_log_payload="$(sed '1{/^__REMOTE_LOG_SIZE__=/d;}' <<<"${remote_log_output}")"
+      if [[ -n "${remote_log_payload}" ]]; then
+        printf '%s' "${remote_log_payload}"
+        [[ "${remote_log_payload}" == *$'\n' ]] || printf '\n'
+      fi
+      if [[ "${remote_log_size}" =~ ^[0-9]+$ ]]; then
+        last_remote_log_offset=$((remote_log_size + 1))
+      fi
+    fi
 
     case "${status}" in
       Pending|InProgress|Delayed|"")
@@ -316,20 +419,6 @@ run_build() {
         break
         ;;
       Cancelled|Cancelling|Failed|TimedOut|DeliveryTimedOut|ExecutionTimedOut)
-        stdout="$(aws ssm get-command-invocation \
-          --region "${AWS_REGION}" \
-          --command-id "${command_id}" \
-          --instance-id "${instance_id}" \
-          --query 'StandardOutputContent' \
-          --output text || true)"
-        stderr="$(aws ssm get-command-invocation \
-          --region "${AWS_REGION}" \
-          --command-id "${command_id}" \
-          --instance-id "${instance_id}" \
-          --query 'StandardErrorContent' \
-          --output text || true)"
-        [[ -n "${stdout}" ]] && printf '%s\n' "${stdout}"
-        [[ -n "${stderr}" ]] && printf '%s\n' "${stderr}" >&2
         echo "Remote build failed with SSM status ${status}" >&2
         return 1
         ;;
@@ -341,24 +430,9 @@ run_build() {
 
   kill "${tail_pid}" 2>/dev/null || true
   trap - EXIT
-
-  stdout="$(aws ssm get-command-invocation \
-    --region "${AWS_REGION}" \
-    --command-id "${command_id}" \
-    --instance-id "${instance_id}" \
-    --query 'StandardOutputContent' \
-    --output text || true)"
-  stderr="$(aws ssm get-command-invocation \
-    --region "${AWS_REGION}" \
-    --command-id "${command_id}" \
-    --instance-id "${instance_id}" \
-    --query 'StandardErrorContent' \
-    --output text || true)"
-
-  [[ -n "${stdout}" ]] && printf '%s\n' "${stdout}"
-  [[ -n "${stderr}" ]] && printf '%s\n' "${stderr}" >&2
-
-  grep -E '^(BUILD_RESULT|ATTIC_PUSH)=' <<<"${stdout}" || true
+  stdout="$(cat "${tmp_stdout}")"
+  grep -E '^(BUILD_RESULT|CACHE_PUSH)=' <<<"${stdout}" || true
+  rm -f "${tmp_commands}" "${tmp_params}" "${tmp_status}" "${tmp_stdout}" "${tmp_stderr}"
 }
 
 terminate() {
