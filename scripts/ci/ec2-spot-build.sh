@@ -258,7 +258,7 @@ wait_ssm() {
 run_build() {
   local instance_id="${1:?instance-id is required}"
   local log_group="${2:?log-group is required}"
-  local command_id status stdout stderr tail_pid tmp_commands tmp_params
+  local command_id status stdout stderr tail_pid="" tmp_commands tmp_params
 
   require_env AWS_REGION RAW_BUILD_SCRIPT_URL REPO_URL REPO_SHA TARGET_ATTR
 
@@ -298,7 +298,7 @@ run_build() {
 
   aws logs tail "${log_group}" --region "${AWS_REGION}" --since 1m --follow --format short &
   tail_pid=$!
-  trap 'kill "${tail_pid}" 2>/dev/null || true' EXIT
+  trap '[[ -n "${tail_pid:-}" ]] && kill "${tail_pid}" 2>/dev/null || true' EXIT
 
   while true; do
     status="$(aws ssm get-command-invocation \

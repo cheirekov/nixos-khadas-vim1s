@@ -26,13 +26,39 @@ as_root() {
 }
 
 ensure_packages() {
+  local -a pkgs
+
   if have_cmd apt-get; then
-    as_root apt-get update -y
-    as_root apt-get install -y git curl jq xz-utils zstd ca-certificates
+    pkgs=()
+    have_cmd git || pkgs+=(git)
+    have_cmd curl || pkgs+=(curl)
+    have_cmd jq || pkgs+=(jq)
+    have_cmd xz || pkgs+=(xz-utils)
+    have_cmd zstd || pkgs+=(zstd)
+    if ((${#pkgs[@]})); then
+      as_root apt-get update -y
+      as_root apt-get install -y "${pkgs[@]}" ca-certificates
+    fi
   elif have_cmd dnf; then
-    as_root dnf install -y git curl jq xz zstd ca-certificates
+    pkgs=()
+    have_cmd git || pkgs+=(git)
+    have_cmd curl || pkgs+=(curl-minimal)
+    have_cmd jq || pkgs+=(jq)
+    have_cmd xz || pkgs+=(xz)
+    have_cmd zstd || pkgs+=(zstd)
+    if ((${#pkgs[@]})); then
+      as_root dnf install -y "${pkgs[@]}" ca-certificates
+    fi
   elif have_cmd yum; then
-    as_root yum install -y git curl jq xz zstd ca-certificates
+    pkgs=()
+    have_cmd git || pkgs+=(git)
+    have_cmd curl || pkgs+=(curl-minimal)
+    have_cmd jq || pkgs+=(jq)
+    have_cmd xz || pkgs+=(xz)
+    have_cmd zstd || pkgs+=(zstd)
+    if ((${#pkgs[@]})); then
+      as_root yum install -y "${pkgs[@]}" ca-certificates
+    fi
   fi
 }
 
