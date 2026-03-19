@@ -9,6 +9,7 @@ NIX_CACHE_REGION="${NIX_CACHE_REGION:-${AWS_REGION:-eu-west-3}}"
 NIX_CACHE_BUCKET_NAME="${NIX_CACHE_BUCKET_NAME:-nix-cache-vim1s-${NIX_CACHE_REGION}}"
 NIX_BINARY_CACHE_SECRET_KEY="${NIX_BINARY_CACHE_SECRET_KEY:-}"
 NIX_BINARY_CACHE_SECRET_KEY_FILE=""
+POST_BUILD_HOOK_FILE=""
 
 log() {
   printf '[builder] %s\n' "$*"
@@ -141,6 +142,35 @@ setup_binary_cache_signing_key() {
   chmod 600 "${NIX_BINARY_CACHE_SECRET_KEY_FILE}"
 }
 
+install_post_build_hook() {
+  local nix_bin
+
+  if [[ -z "${NIX_BINARY_CACHE_SECRET_KEY_FILE}" ]]; then
+    return
+  fi
+
+  nix_bin="$(command -v nix)"
+  POST_BUILD_HOOK_FILE="${WORK_ROOT}/post-build-hook.sh"
+
+  cat > "${POST_BUILD_HOOK_FILE}" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "\${OUT_PATHS:-}" ]]; then
+  exit 0
+fi
+
+echo "[post-build-hook] pushing completed outputs for \${DRV_PATH:-unknown}" >&2
+if ! env -u NIX_CONFIG "${nix_bin}" copy -L --to "$(s3_cache_store_url)" \${OUT_PATHS}; then
+  echo "[post-build-hook] warning: cache push failed for \${DRV_PATH:-unknown}" >&2
+fi
+exit 0
+EOF
+
+  chmod 755 "${POST_BUILD_HOOK_FILE}"
+  export NIX_CONFIG="${NIX_CONFIG}"$'\n'"post-build-hook = ${POST_BUILD_HOOK_FILE}"
+}
+
 clone_repo() {
   log "checking out ${REPO_URL} at ${REPO_SHA}"
   rm -rf "${WORK_ROOT}/repo"
@@ -189,6 +219,7 @@ ensure_packages
 install_nix
 load_nix
 setup_binary_cache_signing_key
+install_post_build_hook
 clone_repo
 build_target
 push_binary_cache

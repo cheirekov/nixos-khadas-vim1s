@@ -147,8 +147,9 @@ EOF
 }
 
 ensure_binary_cache_bucket() {
-  local bucket_policy_json
+  local bucket_policy_json cache_info
   bucket_policy_json="$(mktemp)"
+  cache_info="$(mktemp)"
   render_template "${BUCKET_POLICY_TEMPLATE}" "${bucket_policy_json}"
 
   if aws_cli s3api head-bucket --bucket "${NIX_CACHE_BUCKET_NAME}" >/dev/null 2>&1; then
@@ -175,6 +176,15 @@ ensure_binary_cache_bucket() {
   aws_cli s3api put-bucket-policy \
     --bucket "${NIX_CACHE_BUCKET_NAME}" \
     --policy "file://${bucket_policy_json}" >/dev/null
+
+  cat > "${cache_info}" <<'EOF'
+StoreDir: /nix/store
+WantMassQuery: 1
+Priority: 40
+EOF
+  log "ensuring nix-cache-info exists for ${NIX_CACHE_BUCKET_NAME}"
+  aws_cli s3 cp "${cache_info}" "s3://${NIX_CACHE_BUCKET_NAME}/nix-cache-info" \
+    --content-type text/plain >/dev/null
 }
 
 print_outputs() {

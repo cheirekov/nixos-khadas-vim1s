@@ -6,13 +6,15 @@ This repository now has three manual build paths for repeated kernel bring-up wo
   - Runs directly on GitHub-hosted `ubuntu-24.04-arm`.
   - Best zero-infrastructure option.
   - Good baseline because this public repository gets free standard GitHub-hosted ARM runners.
-  - Pushes finished results directly into an S3-backed Nix binary cache.
+  - Uses a Nix `post-build-hook` to push completed derivations into an S3-backed Nix binary cache as they finish.
+  - Pushes the final result path again at the end for completeness.
 
 - `Build on EC2 Spot ARM`
   - Uses a normal GitHub-hosted runner only as a control plane.
   - Assumes an AWS role over GitHub OIDC.
   - Launches an ephemeral Graviton Spot instance in AWS.
   - Executes the build on that instance over AWS Systems Manager Run Command.
+  - Uses the same incremental `post-build-hook` S3 cache push during the build.
   - Terminates the instance after the build unless you ask to keep it.
 
 - `Build on EC2 Fleet ARM`
@@ -20,6 +22,7 @@ This repository now has three manual build paths for repeated kernel bring-up wo
   - Uses EC2 Fleet with the Spot `price-capacity-optimized` strategy.
   - Offers multiple Graviton instance types to AWS at once instead of trying them sequentially.
   - Better when Spot capacity is inconsistent and you want AWS to choose the best pool.
+  - Uses the same incremental `post-build-hook` S3 cache push during the build.
 
 ## Why this design
 
@@ -65,6 +68,11 @@ This keeps GitHub runner administration out of the design entirely:
   - This first version keeps the workflow simple and uses an ordered list of preferred Graviton types in one region.
   - If you want the full AWS best-practice path later, extend this to EC2 Fleet or Auto Scaling with price-capacity-optimized allocation.
 
+- Cache behavior:
+  - Successful derivations are pushed to the S3 binary cache during the build via a Nix `post-build-hook`.
+  - This means failed kernel iterations still populate the cache with completed dependencies and intermediate derivations.
+  - The final workflow step still pushes the top-level result path after a successful build.
+
 ## Required GitHub configuration
 
 Repository variables:
@@ -80,6 +88,13 @@ Repository variables:
 - `AWS_EC2_ARM_AMI_PARAMETER`
   - Optional override. Default:
     - `/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64`
+- `AWS_ROLE_TO_ASSUME`
+  - Do not store this as a variable. It belongs in GitHub Actions secrets.
+- `NIX_BINARY_CACHE_SECRET_KEY`
+  - Do not store this as a variable. It belongs in GitHub Actions secrets.
+
+Repository secrets:
+
 - `AWS_ROLE_TO_ASSUME`
   - ARN of the AWS IAM role that GitHub Actions assumes over OIDC.
 - `NIX_BINARY_CACHE_SECRET_KEY`
@@ -216,6 +231,52 @@ The builder instance needs outbound access to:
 - AWS S3 for cache uploads
 
 Inbound access is not required for this workflow.
+
+For cheapest S3 cache traffic from EC2 builders, add an S3 Gateway VPC endpoint to the builder VPC route tables. This avoids NAT data processing charges for S3 traffic and keeps S3 transfers on the AWS network.
+
+What it helps with:
+
+- S3 cache reads by `nix copy` and Nix substituters
+- S3 cache writes during `post-build-hook` and final result upload
+
+What it does not replace:
+
+- outbound internet for GitHub
+- outbound internet for `releases.nixos.org` and other non-S3 fetches
+
+The repository includes a helper that defaults to the `nau` AWS CLI profile and can infer the VPC and route table from your build subnet:
+
+```bash
+AWS_PROFILE=nau \
+AWS_REGION=eu-west-3 \
+AWS_SUBNET_ID=<your build subnet> \
+./infra/aws/create-s3-gateway-endpoint.sh
+```
+
+You can also drive it explicitly:
+
+```bash
+AWS_PROFILE=nau \
+AWS_REGION=eu-west-3 \
+AWS_VPC_ID=<vpc-id> \
+ROUTE_TABLE_IDS=<rtb-1,rtb-2> \
+./infra/aws/create-s3-gateway-endpoint.sh
+```
+
+The script prints:
+
+- `VPC_ENDPOINT_ID`
+- `AWS_VPC_ID`
+- `ROUTE_TABLE_IDS`
+- `SERVICE_NAME`
+
+To remove it later:
+
+```bash
+AWS_PROFILE=nau aws ec2 delete-vpc-endpoints \
+  --region eu-west-3 \
+  --vpc-endpoint-ids <vpce-id>
+```
 
 ## Workflow usage
 

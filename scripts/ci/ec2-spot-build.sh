@@ -319,6 +319,7 @@ run_build() {
   local instance_id="${1:?instance-id is required}"
   local log_group="${2:?log-group is required}"
   local command_id status stdout stderr tail_pid="" tmp_commands tmp_params tmp_status tmp_stdout tmp_stderr
+  local build_exit_code=0 final_status=""
   local last_stdout_size=0 last_stderr_size=0 current_stdout_size current_stderr_size
   local last_remote_log_offset=1 remote_log_output remote_log_size remote_log_payload
 
@@ -416,11 +417,13 @@ run_build() {
         sleep 15
         ;;
       Success)
+        final_status="Success"
         break
         ;;
       Cancelled|Cancelling|Failed|TimedOut|DeliveryTimedOut|ExecutionTimedOut)
-        echo "Remote build failed with SSM status ${status}" >&2
-        return 1
+        final_status="${status}"
+        build_exit_code=1
+        break
         ;;
       *)
         sleep 15
@@ -428,11 +431,28 @@ run_build() {
     esac
   done
 
+  if remote_log_output="$(fetch_remote_log_delta "${instance_id}" "${last_remote_log_offset}" 2>/dev/null)"; then
+    remote_log_size="$(sed -n '1s/^__REMOTE_LOG_SIZE__=//p' <<<"${remote_log_output}")"
+    remote_log_payload="$(sed '1{/^__REMOTE_LOG_SIZE__=/d;}' <<<"${remote_log_output}")"
+    if [[ -n "${remote_log_payload}" ]]; then
+      printf '%s' "${remote_log_payload}"
+      [[ "${remote_log_payload}" == *$'\n' ]] || printf '\n'
+    fi
+    if [[ "${remote_log_size}" =~ ^[0-9]+$ ]]; then
+      last_remote_log_offset=$((remote_log_size + 1))
+    fi
+  fi
+
   kill "${tail_pid}" 2>/dev/null || true
   trap - EXIT
   stdout="$(cat "${tmp_stdout}")"
-  grep -E '^(BUILD_RESULT|CACHE_PUSH)=' <<<"${stdout}" || true
+  if [[ "${build_exit_code}" -eq 0 ]]; then
+    grep -E '^(BUILD_RESULT|CACHE_PUSH)=' <<<"${stdout}" || true
+  else
+    echo "Remote build failed with SSM status ${final_status:-unknown}" >&2
+  fi
   rm -f "${tmp_commands}" "${tmp_params}" "${tmp_status}" "${tmp_stdout}" "${tmp_stderr}"
+  return "${build_exit_code}"
 }
 
 terminate() {

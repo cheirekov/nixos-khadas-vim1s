@@ -216,9 +216,13 @@ CONFIG_AMLOGIC_PINCTRL_MESON_S4=y
 CONFIG_AMLOGIC_MMC_MESON_GX=y
 # CONFIG_MMC_CQHCI is not set
 # CONFIG_AMLOGIC_MMC_CQHCI is not set
-# CONFIG_AMLOGIC_EFUSE_UNIFYKEY is not set
-# CONFIG_AMLOGIC_EFUSE is not set
-# CONFIG_AMLOGIC_UNIFYKEY is not set
+# Keep the vendor efuse provider modular. stmmac-platform.ko reads MAC data via
+# efuse_user_attr_read(), and aml_media.ko pulls efuse_obj_read() from the same
+# driver. The header stub warning was fixed above, so we can enable the real
+# provider again without reintroducing the earlier GCC 13 failure.
+CONFIG_AMLOGIC_EFUSE_UNIFYKEY=m
+CONFIG_AMLOGIC_EFUSE=y
+CONFIG_AMLOGIC_UNIFYKEY=y
 # CONFIG_AMLOGIC_DEFENDKEY is not set
 
 # Keep boot-critical storage and pinctrl paths built in, but leave the
@@ -270,9 +274,10 @@ EOF
       grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
       grep -E '^(CONFIG_MDIO|CONFIG_STMMAC_ETH|CONFIG_STMMAC_PLATFORM|CONFIG_DWMAC_MESON|CONFIG_MDIO_BUS_MUX_MESON_G12A|CONFIG_AMLOGIC_MDIO_G12A)=' .config || true
       grep -E '^(CONFIG_AMLOGIC_MEDIA_MODULE|CONFIG_AMLOGIC_MEDIA_UTILS|CONFIG_AMLOGIC_DRM|CONFIG_AMLOGIC_HDMITX|CONFIG_AMLOGIC_VPU|CONFIG_AMLOGIC_VOUT|CONFIG_AMLOGIC_SECMON|CONFIG_AMLOGIC_CPU_INFO)=' .config || true
+      grep -E '^(CONFIG_AMLOGIC_EFUSE_UNIFYKEY|CONFIG_AMLOGIC_EFUSE|CONFIG_AMLOGIC_UNIFYKEY)=' .config || true
       grep -E '^(# CONFIG_(BCMDHD|AMLOGIC_NPU) is not set)$' .config || true
       grep -E '^(CONFIG_REGULATOR_GPIO)=' .config || true
-      grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI|AMLOGIC_EFUSE_UNIFYKEY|AMLOGIC_UNIFYKEY) is not set)$' .config || true
+      grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI) is not set)$' .config || true
 
       # Fail fast if olddefconfig re-enables the upstream Meson providers or if
       # the vendor S4 root-path drivers are not built in. Only the SD boot path
@@ -290,8 +295,9 @@ EOF
         '# CONFIG_PINCTRL_MESON is not set' \
         '# CONFIG_MMC_MESON_GX is not set' \
         '# CONFIG_MMC_CQHCI is not set' \
-        '# CONFIG_AMLOGIC_EFUSE_UNIFYKEY is not set' \
-        '# CONFIG_AMLOGIC_UNIFYKEY is not set'
+        'CONFIG_AMLOGIC_EFUSE_UNIFYKEY=m' \
+        'CONFIG_AMLOGIC_EFUSE=y' \
+        'CONFIG_AMLOGIC_UNIFYKEY=y'
       do
         grep -qxF "$line" .config || {
           echo "Unexpected kernel config: missing '$line'" >&2

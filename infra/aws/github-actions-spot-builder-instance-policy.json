@@ -17,6 +17,20 @@
         "arn:aws:s3:::<NIX_CACHE_BUCKET_NAME>",
         "arn:aws:s3:::<NIX_CACHE_BUCKET_NAME>/*"
       ]
+    },
+    {
+      "Sid": "CloudWatchLogsForRemoteBuildOutput",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogStream",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/github/remote-build/*",
+        "arn:aws:logs:<REGION>:<ACCOUNT_ID>:log-group:/github/remote-build/*:log-stream:*"
+      ]
     }
   ]
 }
