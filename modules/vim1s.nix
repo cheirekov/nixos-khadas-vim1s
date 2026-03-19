@@ -234,6 +234,11 @@ CONFIG_AMLOGIC_UNIFYKEY=y
 CONFIG_STMMAC_ETH=m
 CONFIG_STMMAC_PLATFORM=m
 CONFIG_DWMAC_MESON=m
+# The upstream Meson G12A MDIO mux driver aliases the same DT node as the
+# vendor amlogic-mdio-g12a module. Ubuntu's working VIM1S image keeps only the
+# vendor path enabled. If both are modular, the upstream one can bind first and
+# leave Ethernet stuck without a usable MAC device.
+# CONFIG_MDIO_BUS_MUX_MESON_G12A is not set
 CONFIG_AMLOGIC_MDIO_G12A=m
 CONFIG_AMLOGIC_MEDIA_MODULE=m
 CONFIG_AMLOGIC_MEDIA_UTILS=m
@@ -272,7 +277,8 @@ EOF
 
       echo "VIM1S kernel config summary:"
       grep -E '^(CONFIG_AMLOGIC_COMMON_CLK_S4|CONFIG_AMLOGIC_PINCTRL_MESON_S4|CONFIG_AMLOGIC_MMC_MESON_GX)=' .config || true
-      grep -E '^(CONFIG_MDIO|CONFIG_STMMAC_ETH|CONFIG_STMMAC_PLATFORM|CONFIG_DWMAC_MESON|CONFIG_MDIO_BUS_MUX_MESON_G12A|CONFIG_AMLOGIC_MDIO_G12A)=' .config || true
+      grep -E '^(CONFIG_MDIO|CONFIG_STMMAC_ETH|CONFIG_STMMAC_PLATFORM|CONFIG_DWMAC_MESON|CONFIG_AMLOGIC_MDIO_G12A)=' .config || true
+      grep -E '^(# CONFIG_MDIO_BUS_MUX_MESON_G12A is not set)$' .config || true
       grep -E '^(CONFIG_AMLOGIC_MEDIA_MODULE|CONFIG_AMLOGIC_MEDIA_UTILS|CONFIG_AMLOGIC_DRM|CONFIG_AMLOGIC_HDMITX|CONFIG_AMLOGIC_VPU|CONFIG_AMLOGIC_VOUT|CONFIG_AMLOGIC_SECMON|CONFIG_AMLOGIC_CPU_INFO)=' .config || true
       grep -E '^(CONFIG_AMLOGIC_EFUSE_UNIFYKEY|CONFIG_AMLOGIC_EFUSE|CONFIG_AMLOGIC_UNIFYKEY)=' .config || true
       grep -E '^(# CONFIG_(BCMDHD|AMLOGIC_NPU) is not set)$' .config || true
@@ -304,6 +310,7 @@ EOF
           exit 1
         }
       done
+      grep -q '^# CONFIG_MDIO_BUS_MUX_MESON_G12A is not set$' .config
 
       # AMLOGIC_MMC_CQHCI depends on MMC_CQHCI. Once MMC_CQHCI is forced off,
       # olddefconfig may omit the vendor symbol entirely instead of emitting an
@@ -487,9 +494,27 @@ in
     # Keep initrd narrow; the boot-critical MMC/clock/pinctrl path is built in.
     # Runtime devices such as Ethernet and display can load from the rootfs
     # module tree after switch_root.
+    #
+    # The vendor 5.15 kernel reports the default zstd-compressed NixOS initrd
+    # as corrupt at boot and then stage 1 loses files from /nix/store. Use
+    # gzip for bring-up until we can prove zstd is safe on this board.
+    initrd.compressor = lib.mkForce "gzip";
     initrd.includeDefaultModules = lib.mkForce false;
     initrd.availableKernelModules = lib.mkForce [ ];
     initrd.kernelModules = lib.mkForce [ ];
+
+    # Stage 2 currently panics when udev auto-loads the vendor DRM stack.
+    # Keep the board headless until the aml_drm/aml_media bind path is debugged.
+    #
+    # Also block the upstream mdio_mux_meson_g12a helper. Ubuntu's working VIM1S
+    # image uses the vendor amlogic_mdio_g12a path instead, and letting both
+    # claim the same DT alias leaves Ethernet without a usable MAC device.
+    blacklistedKernelModules = [ "aml_drm" "mdio_mux_meson_g12a" ];
+
+    # Match the working Ubuntu runtime more closely: explicitly load the vendor
+    # Meson8b DWMAC glue module after switch_root. Its dependency graph pulls in
+    # amlogic_mdio_g12a, mdio_mux, inphy, stmmac_platform and related helpers.
+    kernelModules = [ "dwmac_meson8b" ];
   };
 
   # Device tree: install our vendor-built DTB and reference it
@@ -555,18 +580,19 @@ in
     echo "===== initrd device debug end ====="
   '';
 
-  # The internal eMMC enumerates before the removable SD slot on VIM1S, so a
-  # hardcoded /dev/mmcblk0p2 points at the wrong device once the SD stack
-  # starts working. Follow the rootfs label again and keep the firmware
-  # partition optional.
+  # On the current VIM1S bring-up logs the internal eMMC is mmcblk0 and the
+  # removable SD card is mmcblk1. Use the raw SD block nodes for now so stage 1
+  # does not depend on udev creating /dev/disk/by-label before it can mount
+  # root. We can switch back to a more abstract identifier after initrd userspace
+  # is stable on this board.
   fileSystems."/" = lib.mkForce {
-    device = "/dev/disk/by-label/NIXOS_SD";
+    device = "/dev/mmcblk1p2";
     fsType = "ext4";
     options = [ "x-initrd.mount" ];
   };
 
   fileSystems."/boot/firmware" = lib.mkForce {
-    device = "/dev/mmcblk0p1";
+    device = "/dev/mmcblk1p1";
     fsType = "vfat";
     options = [ "nofail" "noauto" ];
   };
