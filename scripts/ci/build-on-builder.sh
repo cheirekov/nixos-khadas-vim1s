@@ -54,6 +54,38 @@ ensure_home() {
   fi
 }
 
+ensure_stack_limit() {
+  local desired_kb=61440
+  local soft_kb
+  local hard_kb
+
+  soft_kb="$(ulimit -S -s)"
+  hard_kb="$(ulimit -H -s)"
+
+  if [[ "${hard_kb}" != "unlimited" ]] && (( hard_kb < desired_kb )); then
+    if ulimit -H -s "${desired_kb}" 2>/dev/null; then
+      log "raised hard stack limit from ${hard_kb} KB to ${desired_kb} KB"
+      hard_kb="${desired_kb}"
+    else
+      log "warning: could not raise hard stack limit above ${hard_kb} KB"
+    fi
+  fi
+
+  if [[ "${soft_kb}" != "unlimited" ]] && (( soft_kb < desired_kb )); then
+    if ulimit -S -s "${desired_kb}" 2>/dev/null; then
+      log "raised soft stack limit from ${soft_kb} KB to ${desired_kb} KB"
+    elif [[ "${hard_kb}" != "unlimited" ]] && (( soft_kb < hard_kb )); then
+      if ulimit -S -s "${hard_kb}" 2>/dev/null; then
+        log "raised soft stack limit from ${soft_kb} KB to ${hard_kb} KB"
+      else
+        log "warning: could not raise soft stack limit above ${soft_kb} KB"
+      fi
+    else
+      log "warning: could not raise soft stack limit above ${soft_kb} KB"
+    fi
+  fi
+}
+
 ensure_packages() {
   local -a pkgs
 
@@ -269,6 +301,7 @@ push_binary_cache() {
 }
 
 ensure_home
+ensure_stack_limit
 ensure_packages
 install_nix
 load_nix
