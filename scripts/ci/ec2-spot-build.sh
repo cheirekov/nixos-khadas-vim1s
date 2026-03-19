@@ -94,7 +94,7 @@ launch() {
 
 launch_fleet() {
   local ami_id fleet_id instance_id instance_type launch_name launch_template_id
-  local tmp_fleet_json tmp_lt_json tmp_output lt_name deadline
+  local tmp_fleet_json tmp_lt_json tmp_output lt_name
   local -a candidates
 
   require_env AWS_REGION EC2_AMI_SSM_PARAMETER INSTANCE_TYPES SUBNET_ID SECURITY_GROUP_ID INSTANCE_PROFILE_NAME
@@ -201,24 +201,18 @@ launch_fleet() {
     --cli-input-json "file://${tmp_fleet_json}" > "${tmp_output}"
 
   fleet_id="$(jq -r '.FleetId' "${tmp_output}")"
+  # Instant Fleets return the chosen instance directly in create-fleet output.
+  # describe-fleet-instances is not supported for Type=instant fleets.
+  instance_id="$(jq -r '
+    .Instances[0].InstanceIds[0]
+    // .Instances[0].InstanceIds.item
+    // .fleetInstanceSet.item.instanceIds.item
+    // empty
+  ' "${tmp_output}")"
 
-  deadline=$((SECONDS + 300))
-  while (( SECONDS < deadline )); do
-    instance_id="$(aws ec2 describe-fleet-instances \
-      --region "${AWS_REGION}" \
-      --fleet-id "${fleet_id}" \
-      --query 'ActiveInstances[0].InstanceId' \
-      --output text 2>/dev/null || true)"
-
-    if [[ -n "${instance_id}" && "${instance_id}" != "None" ]]; then
-      break
-    fi
-
-    sleep 5
-  done
-
-  if [[ -z "${instance_id:-}" || "${instance_id}" == "None" ]]; then
-    echo "EC2 Fleet ${fleet_id} did not produce an instance within 5 minutes" >&2
+  if [[ -z "${instance_id:-}" || "${instance_id}" == "null" ]]; then
+    echo "EC2 Fleet ${fleet_id} did not return an instance in create-fleet output" >&2
+    jq -r '.' "${tmp_output}" >&2 || true
     return 1
   fi
 
