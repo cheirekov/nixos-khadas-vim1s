@@ -17,6 +17,20 @@ have_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+download() {
+  local url="${1:?url is required}"
+  local out="${2:?output path is required}"
+
+  if have_cmd curl; then
+    curl --fail --location --progress-bar "$url" -o "$out"
+  elif have_cmd wget; then
+    wget --show-progress -O "$out" "$url"
+  else
+    echo "Neither curl nor wget is available for downloading ${url}" >&2
+    exit 1
+  fi
+}
+
 as_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
     "$@"
@@ -68,8 +82,15 @@ install_nix() {
   fi
 
   log "installing Nix"
-  curl -fsSL https://nixos.org/nix/install -o /tmp/install-nix.sh
+  download https://nixos.org/nix/install /tmp/install-nix.sh
   chmod +x /tmp/install-nix.sh
+  # The legacy installer hides the large binary-tarball download behind a
+  # plain curl command. Rewrite it locally so SSM/CloudWatch logs show whether
+  # the EC2 host is actually pulling data or just waiting.
+  sed -i \
+    -e 's/curl --fail -L /curl --fail -L --progress-bar /' \
+    -e 's/wget "$1" -O "$2"/wget --show-progress "$1" -O "$2"/' \
+    /tmp/install-nix.sh
   as_root /bin/sh /tmp/install-nix.sh --daemon --yes
 }
 

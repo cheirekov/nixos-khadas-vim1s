@@ -276,7 +276,7 @@ run_build() {
     printf 'export ATTIC_ENDPOINT=%q\n' "${ATTIC_ENDPOINT:-}"
     printf 'export ATTIC_CACHE=%q\n' "${ATTIC_CACHE:-}"
     printf 'export ATTIC_TOKEN=%q\n' "${ATTIC_TOKEN:-}"
-    printf 'curl -fsSL %q -o /tmp/build-on-builder.sh\n' "${RAW_BUILD_SCRIPT_URL}"
+    printf 'curl --fail --location --progress-bar %q -o /tmp/build-on-builder.sh\n' "${RAW_BUILD_SCRIPT_URL}"
     echo "chmod +x /tmp/build-on-builder.sh"
     echo "/tmp/build-on-builder.sh"
   } > "${tmp_commands}"
