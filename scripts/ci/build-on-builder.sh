@@ -76,7 +76,7 @@ ensure_packages() {
     have_cmd xz || pkgs+=(xz)
     have_cmd zstd || pkgs+=(zstd)
     if ((${#pkgs[@]})); then
-      as_root dnf install -y "${pkgs[@]}" ca-certificates
+      ensure_dnf_packages "${pkgs[@]}" ca-certificates
     fi
   elif have_cmd yum; then
     pkgs=()
@@ -89,6 +89,28 @@ ensure_packages() {
       as_root yum install -y "${pkgs[@]}" ca-certificates
     fi
   fi
+}
+
+ensure_dnf_packages() {
+  local -a pkgs
+
+  pkgs=("$@")
+  if ((${#pkgs[@]} == 0)); then
+    return 0
+  fi
+
+  # Amazon Linux 2023 has occasionally failed package transactions in fresh EC2
+  # builders with cache/file-missing errors inside /var/cache/dnf. Start with a
+  # normal install, then aggressively reset the cache and retry once if needed.
+  if as_root dnf install -y --refresh --setopt=keepcache=0 "${pkgs[@]}"; then
+    return 0
+  fi
+
+  log "dnf install failed, cleaning DNF cache and retrying once"
+  as_root rm -rf /var/cache/dnf
+  as_root dnf clean all || true
+  as_root dnf makecache --refresh
+  as_root dnf install -y --refresh --setopt=keepcache=0 "${pkgs[@]}"
 }
 
 install_nix() {
