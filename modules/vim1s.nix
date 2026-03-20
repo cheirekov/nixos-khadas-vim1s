@@ -51,6 +51,26 @@ PY
     substituteInPlace $out/common_drivers/drivers/efuse_unifykey/efuse.h \
       --replace-fail 'static int __init aml_efuse_init(void)' 'static inline int aml_efuse_init(void)' \
       --replace-fail 'static void aml_efuse_exit(void)' 'static inline void aml_efuse_exit(void)'
+
+    # The vendor BCMDHD driver ships its Broadcom headers in a local include/
+    # directory, but its Makefile relies on Android-style EXTRA_CFLAGS plumbing
+    # that is not consistently honored in our linuxManualConfig/O= build.
+    # Add the local include paths via normal Kbuild ccflags-y/subdir-ccflags-y
+    # so sources like aiutils.c can resolve <typedefs.h> and friends.
+    ${pkgs.python3}/bin/python3 - "$out/drivers/net/wireless/bcmdhd/Makefile" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+needle = 'EXTRA_CFLAGS += -I$(BCMDHD_ROOT)/include/ -I$(BCMDHD_ROOT)/\n'
+insert = needle + 'ccflags-y += -I$(src)/include -I$(src)\nsubdir-ccflags-y += -I$(src)/include -I$(src)\n'
+if 'subdir-ccflags-y += -I$(src)/include -I$(src)' not in text:
+    if needle not in text:
+        raise SystemExit("failed to patch BCMDHD Makefile include paths")
+    text = text.replace(needle, insert, 1)
+path.write_text(text)
+PY
   '';
   localDtOverlayDir = ../files/dtb;
   dtbOverlayEnv = pkgs.writeText "kvim1s.dtb.overlay.env" ''
