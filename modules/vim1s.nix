@@ -61,6 +61,77 @@ PY
     overlays=
     fdt_overlays=
   '';
+  vim1sWirelessFirmwareCompat = pkgs.runCommand "vim1s-wireless-firmware-compat" {
+    nativeBuildInputs = [ pkgs.xz ];
+  } ''
+    mkdir -p "$out/lib/firmware/brcm" "$out/lib/firmware"
+
+    copy_fw() {
+      local dst="$1"
+      shift
+      local src
+      for src in "$@"; do
+        if [ -f "$src" ]; then
+          case "$src" in
+            *.xz)
+              xz -dc "$src" > "$dst"
+              ;;
+            *)
+              cp "$src" "$dst"
+              ;;
+          esac
+          return 0
+        fi
+      done
+      echo "missing firmware source for $dst" >&2
+      exit 1
+    }
+
+    copy_fw "$out/lib/firmware/brcm/BCM4345C5.hcd" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/BCM4345C5.hcd
+
+    copy_fw "$out/lib/firmware/brcm/fw_bcm43456c5_ag.bin" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/fw_bcm43456c5_ag.bin
+
+    copy_fw "$out/lib/firmware/brcm/fw_bcm43456c5_ag_apsta.bin" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/fw_bcm43456c5_ag_apsta.bin
+
+    copy_fw "$out/lib/firmware/brcm/config_bcm43456c5_ag.txt" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/config_bcm43456c5_ag.txt
+
+    copy_fw "$out/lib/firmware/brcm/nvram_ap6256.txt" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/nvram_ap6256.txt
+
+    copy_fw "$out/lib/firmware/brcm/brcmfmac43456-sdio.bin" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/brcmfmac43456-sdio.bin
+
+    copy_fw "$out/lib/firmware/brcm/brcmfmac43456-sdio.clm_blob" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/brcmfmac43456-sdio.clm_blob
+
+    copy_fw "$out/lib/firmware/brcm/brcmfmac43456-sdio.txt" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/brcmfmac43456-sdio.txt
+
+    copy_fw "$out/lib/firmware/regulatory.db" \
+      ${pkgs.wireless-regdb}/lib/firmware/regulatory.db
+
+    copy_fw "$out/lib/firmware/regulatory.db.p7s" \
+      ${pkgs.wireless-regdb}/lib/firmware/regulatory.db.p7s
+  '';
+  bluetoothKhadasScript = pkgs.writeShellScript "bluetooth-khadas.sh" ''
+    set -eu
+
+    for _ in $(seq 1 10); do
+      [ -e /dev/ttyS1 ] && break
+      sleep 1
+    done
+
+    ${pkgs.util-linux}/bin/rfkill block bluetooth || ${pkgs.util-linux}/bin/rfkill block 0 || true
+    sleep 2
+    ${pkgs.util-linux}/bin/rfkill unblock bluetooth || ${pkgs.util-linux}/bin/rfkill unblock 0 || true
+    sleep 1
+
+    exec ${pkgs.bluez}/bin/hciattach -n -s 115200 /dev/ttyS1 bcm43xx 2000000
+  '';
 
   # Pre-generate a non-interactive .config from vendor kvims_defconfig to avoid Nix's generate-config loop
   kvimsConfig = pkgs.stdenv.mkDerivation {
@@ -245,7 +316,14 @@ CONFIG_AMLOGIC_MEDIA_UTILS=m
 CONFIG_AMLOGIC_DRM=m
 CONFIG_AMLOGIC_SECMON=m
 CONFIG_AMLOGIC_CPU_INFO=m
-# CONFIG_BCMDHD is not set
+CONFIG_BCMDHD=m
+CONFIG_BCMDHD_FW_PATH="/lib/firmware/brcm/"
+CONFIG_BCMDHD_NVRAM_PATH="/lib/firmware/brcm/"
+CONFIG_BCMDHD_SDIO=y
+# CONFIG_BCMDHD_PCIE is not set
+# CONFIG_BCMDHD_USB is not set
+CONFIG_BCMDHD_OOB=y
+# CONFIG_BCMDHD_SDIO_IRQ is not set
 # CONFIG_AMLOGIC_NPU is not set
 
 # Fix link error from hid-core referencing uhid_hid_driver:
@@ -281,7 +359,7 @@ EOF
       grep -E '^(# CONFIG_MDIO_BUS_MUX_MESON_G12A is not set)$' .config || true
       grep -E '^(CONFIG_AMLOGIC_MEDIA_MODULE|CONFIG_AMLOGIC_MEDIA_UTILS|CONFIG_AMLOGIC_DRM|CONFIG_AMLOGIC_HDMITX|CONFIG_AMLOGIC_VPU|CONFIG_AMLOGIC_VOUT|CONFIG_AMLOGIC_SECMON|CONFIG_AMLOGIC_CPU_INFO)=' .config || true
       grep -E '^(CONFIG_AMLOGIC_EFUSE_UNIFYKEY|CONFIG_AMLOGIC_EFUSE|CONFIG_AMLOGIC_UNIFYKEY)=' .config || true
-      grep -E '^(# CONFIG_(BCMDHD|AMLOGIC_NPU) is not set)$' .config || true
+      grep -E '^(CONFIG_BCMDHD|# CONFIG_AMLOGIC_NPU is not set)' .config || true
       grep -E '^(CONFIG_REGULATOR_GPIO)=' .config || true
       grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI) is not set)$' .config || true
 
@@ -320,15 +398,13 @@ EOF
         exit 1
       fi
 
-      # These vendor modules have broken source plumbing in the current tree:
-      # BCMDHD is missing Broadcom headers like typedefs.h, and AMLOGIC_NPU
-      # misses gc_hal.h include wiring. olddefconfig may omit the symbols
-      # entirely when dependencies are not met, so only fail if they end up
-      # explicitly enabled.
-      if grep -q '^CONFIG_BCMDHD=' .config; then
-        echo "Unexpected kernel config: BCMDHD is still enabled" >&2
+      # Wireless support should follow the vendor Ubuntu BSP here: keep BCMDHD
+      # enabled for the AP6256 combo module, but continue to leave the broken
+      # vendor NPU disabled until its include wiring is fixed separately.
+      grep -qxF 'CONFIG_BCMDHD=m' .config || {
+        echo "Unexpected kernel config: BCMDHD is not enabled as a module" >&2
         exit 1
-      fi
+      }
       if grep -q '^CONFIG_AMLOGIC_NPU=' .config; then
         echo "Unexpected kernel config: AMLOGIC_NPU is still enabled" >&2
         exit 1
@@ -514,13 +590,13 @@ in
     # Also block the upstream mdio_mux_meson_g12a helper. Ubuntu's working VIM1S
     # image uses the vendor amlogic_mdio_g12a path instead, and letting both
     # claim the same DT alias leaves Ethernet without a usable MAC device.
-    blacklistedKernelModules = [ "aml_drm" "mdio_mux_meson_g12a" ];
+    blacklistedKernelModules = [ "aml_drm" "mdio_mux_meson_g12a" "brcmfmac" ];
 
     # Match the working Ubuntu runtime more closely: bring up the Amlogic
     # mailbox service before the vendor Ethernet stack. Live probing on the
     # board shows that loading amlogic_mailbox immediately clears the repeated
     # -EPROBE_DEFER loop for the MDIO mux, Ethernet MAC and HDMI CEC nodes.
-    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" ];
+    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" "amlogic-wireless" "dhd" ];
 
     # Keep the vendor MDIO mux from racing ahead of the DWMAC side during
     # coldplug, and make the mailbox provider available before both. Without
@@ -529,6 +605,8 @@ in
     extraModprobeConfig = ''
       softdep dwmac_meson8b pre: amlogic_mailbox
       softdep amlogic_mdio_g12a pre: amlogic_mailbox stmmac stmmac_platform dwmac_meson8b
+      softdep dhd pre: amlogic-wireless cfg80211
+      options dhd firmware_path=/lib/firmware/brcm/ nvram_path=/lib/firmware/brcm/
     '';
   };
 
@@ -540,8 +618,9 @@ in
   };
 
   # Firmware (Wi-Fi/BT/etc.)
-  hardware.firmware = [ pkgs.armbian-firmware pkgs.linux-firmware ];
+  hardware.firmware = [ pkgs.armbian-firmware pkgs.linux-firmware vim1sWirelessFirmwareCompat ];
   hardware.enableRedistributableFirmware = true;
+  hardware.bluetooth.enable = true;
 
   # Filesystems we want in userspace/initrd
   boot.supportedFilesystems = [ "vfat" "ext4" "btrfs" "f2fs" ];
@@ -616,6 +695,18 @@ in
   services.openssh.enable = true;
   services.getty.autologinUser = lib.mkDefault "nixos";
   systemd.services."serial-getty@ttyS0".enable = true;
+  systemd.services.bluetooth-khadas = {
+    description = "Khadas Bluetooth attach service";
+    after = [ "systemd-modules-load.service" ];
+    before = [ "bluetooth.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "simple";
+      ExecStart = bluetoothKhadasScript;
+      Restart = "on-failure";
+      RestartSec = "2s";
+    };
+  };
 
   users.users.nixos = {
     isNormalUser = true;
