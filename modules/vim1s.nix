@@ -488,8 +488,6 @@ in
       "ignore_loglevel"
       "initcall_debug"
       "meson_gx_mmc.dyndbg=+p"
-      "nokaslr"
-      "optee=off"
       "optee.disable=1"
       "arm_ffa.disable=1"
     ];

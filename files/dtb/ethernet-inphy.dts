@@ -12,6 +12,22 @@
         target-path = "/soc/apb4@fe000000/mdio-multiplexer@28000";
 
         __overlay__ {
+            /*
+             * The S4 base DTS only exposes three clocks here, but the vendor
+             * g12a-mdio-mux driver also looks up a fourth clock named
+             * "ethrmii". On the running board that missing clock is the last
+             * concrete mismatch before the MDIO mux starts probing.
+             *
+             * Numeric clock IDs come from amlogic,s4-clkc.h:
+             *   CLKID_MPLL_50M = 50
+             *   CLKID_ETHPHY   = 266
+             *   CLKID_ETH      = 280
+             */
+            clocks = <&clkc 266>,
+                     <&xtal>,
+                     <&clkc 50>,
+                     <&clkc 280>;
+            clock-names = "pclk", "clkin0", "clkin1", "ethrmii";
             phy_mode = <5>;
         };
     };

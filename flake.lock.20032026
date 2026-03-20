@@ -3,11 +3,11 @@
     "common_drivers": {
       "flake": false,
       "locked": {
-        "lastModified": 1773649884,
-        "narHash": "sha256-8PYiJGg0Zmlo3D2SEBzwN2Ab8lEDMFL5TEF2Zqy3xQQ=",
+        "lastModified": 1755656743,
+        "narHash": "sha256-oALW0Cs1pye6K29IYm0SdBSRtbkTPfnBnyNkeGwTwy8=",
         "owner": "khadas",
         "repo": "common_drivers",
-        "rev": "2eef6f0d16b77777dc33634b5a99dab181fb7152",
+        "rev": "de3acc171f6c5caab9a4d1989bb73df0b73cfa6f",
         "type": "github"
       },
       "original": {
@@ -70,16 +70,16 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1773814637,
-        "narHash": "sha256-GNU+ooRmrHLfjlMsKdn0prEKVa0faVanm0jrgu1J/gY=",
+        "lastModified": 1735563628,
+        "narHash": "sha256-OnSAY7XDSx7CtDoqNh8jwVwh4xNL/2HaJxGjryLWzX8=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "fea3b367d61c1a6592bc47c72f40a9f3e6a53e96",
+        "rev": "b134951a4c9f3c995fd7be05f3243f8ecd65d798",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixos-25.11",
+        "ref": "nixos-24.05",
         "repo": "nixpkgs",
         "type": "github"
       }
@@ -112,11 +112,11 @@
     "uboot-khadas": {
       "flake": false,
       "locked": {
-        "lastModified": 1768472192,
-        "narHash": "sha256-DFM75+3Ja+2SbhdujzqAQ7bnBx7hy9H9Sm92/Qsj61M=",
+        "lastModified": 1758768329,
+        "narHash": "sha256-K1wf4ii/gIk879OdZ40RXZDPfJr4fZVqoNOHgZruS58=",
         "owner": "khadas",
         "repo": "u-boot",
-        "rev": "ee17cc6503f918a4163bb4aaabcb1f88c7dec7da",
+        "rev": "9834e1b545e3a00ac8d2d49821244acc5b03b3a4",
         "type": "github"
       },
       "original": {
