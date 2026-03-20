@@ -7,6 +7,77 @@ Objective
   - Neutral U‑Boot chainloader (u‑boot.ext) via extlinux
 - Provide fast diagnostics and fallback commands if it doesn’t boot on first try.
 
+Current Bring-Up Snapshot
+- As of March 20, 2026, the NixOS image boots successfully to stage 2 and a
+  working shell when the risky vendor DRM path is disabled.
+- The current headless boot path relies on:
+  - `boot.initrd.compressor = "gzip"`
+  - root mounted directly from `/dev/mmcblk1p2`
+  - `/boot/firmware` mounted from `/dev/mmcblk1p1`
+  - `aml_drm` blacklisted to avoid a vendor DRM/media panic during `udev`
+    coldplug
+- UART logs from the successful headless Nix boot and the working Ubuntu
+  reference boot are kept locally as:
+  - `uart-115200.log`
+  - `uart-921600.log`
+
+Ubuntu Reference Findings
+- Official Ubuntu 24.04 Fenix image for VIM1S is a useful runtime reference.
+- It boots through vendor U‑Boot using:
+  - `/extlinux/extlinux.conf`
+  - `/dtb/amlogic/kvim1s.dtb`
+  - `/uEnv.txt`
+- Ubuntu uses a separate `BOOT` partition on `mmcblk1p1` and mounts the rootfs
+  from `mmcblk1p2`.
+- Ubuntu proves the vendor runtime stack can support all of the following on
+  this board:
+  - HDMI connector detection
+  - Ethernet as `eth0`
+  - Wi‑Fi as `wlan0` and `wlan1`
+  - Bluetooth as `hci0`
+- Important working Ubuntu module chain for Ethernet:
+  - `dwmac_meson8b`
+  - `stmmac_platform`
+  - `stmmac`
+  - `amlogic_mdio_g12a`
+  - `mdio_mux`
+  - `amlogic_inphy`
+- Important working Ubuntu wireless/Bluetooth path:
+  - Broadcom `dhd` driver
+  - BCM43456 / AP6256 firmware under `lib/firmware/brcm`
+  - Bluetooth controller reported as Broadcom over UART
+- Important HDMI observation from Ubuntu:
+  - `aml_drm` and `aml_media` load with warnings, but the system stays alive and
+    `/sys/class/drm/card0-HDMI-A-1/status` reports `connected`
+
+Current Nix Kernel State
+- Ethernet bring-up now follows the vendor path more closely:
+  - `CONFIG_STMMAC_ETH=m`
+  - `CONFIG_STMMAC_PLATFORM=m`
+  - `CONFIG_DWMAC_MESON=m`
+  - `CONFIG_AMLOGIC_MDIO_G12A=m`
+  - `CONFIG_AMLOGIC_INPHY=m`
+  - `boot.kernelModules = [ "dwmac_meson8b" ]`
+- The upstream conflicting mux path is intentionally disabled:
+  - `# CONFIG_MDIO_BUS_MUX_MESON_G12A is not set`
+  - `mdio_mux_meson_g12a` is blacklisted at runtime
+- HDMI is not fixed yet:
+  - `aml_drm` is still blacklisted on the Nix image
+  - this is a deliberate bring-up choice to keep the board bootable while
+    Ethernet and wireless are being aligned with the vendor stack
+- Wi‑Fi is not fixed yet:
+  - `CONFIG_BCMDHD` is still disabled on the Nix image
+  - Bluetooth UART support is enabled, but the Broadcom combo wireless path is
+    not yet matched to Ubuntu
+
+Next Bring-Up Order
+1. Re-test the latest Nix image on hardware to confirm the Ethernet MDIO patch
+   produces `eth0`.
+2. Enable the Broadcom `dhd` path and firmware packaging so Wi‑Fi/Bluetooth
+   match the Ubuntu reference.
+3. Reintroduce `aml_drm` carefully with vendor-style module ordering and UART
+   attached, then validate HDMI.
+
 Prerequisites
 - Built SD image:
   - nix build -L .#vim1s-sd-image --accept-flake-config

@@ -417,7 +417,10 @@ EOF
         done
       fi
 
-      for src in ${localDtOverlayDir}/disable-optee.dts ${localDtOverlayDir}/console-stdout.dts; do
+      for src in \
+        ${localDtOverlayDir}/disable-optee.dts \
+        ${localDtOverlayDir}/console-stdout.dts \
+        ${localDtOverlayDir}/ethernet-inphy.dts; do
         ov="$(basename "$src" .dts)"
         ${pkgs.dtc}/bin/dtc -I dts -O dtb -@ -o "$ov.dtbo" "$src"
         overlays="$overlays $ov.dtbo"
@@ -514,7 +517,15 @@ in
     # Match the working Ubuntu runtime more closely: explicitly load the vendor
     # Meson8b DWMAC glue module after switch_root. Its dependency graph pulls in
     # amlogic_mdio_g12a, mdio_mux, inphy, stmmac_platform and related helpers.
-    kernelModules = [ "dwmac_meson8b" ];
+    kernelModules = [ "dwmac_meson8b" "amlogic_mdio_g12a" ];
+
+    # Keep the vendor MDIO mux from racing ahead of the DWMAC side during
+    # coldplug. On the current image the mux repeatedly defers on the parent
+    # MDIO path while the MAC does the same on the PHY side, so bias the load
+    # order toward the MAC glue first and then the mux.
+    extraModprobeConfig = ''
+      softdep amlogic_mdio_g12a pre: stmmac stmmac_platform dwmac_meson8b
+    '';
   };
 
   # Device tree: install our vendor-built DTB and reference it

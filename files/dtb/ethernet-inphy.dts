@@ -1,0 +1,26 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+    /*
+     * Vendor Amlogic Ethernet helpers consume a second, non-standard set of
+     * DT properties in addition to the normal phy-mode/phy-handle binding.
+     * Ubuntu's working runtime proves the VIM1S uses the internal RMII PHY;
+     * mirror just those hints here without replacing the whole Ethernet node.
+     */
+    fragment@0 {
+        target-path = "/soc/apb4@fe000000/mdio-multiplexer@28000";
+
+        __overlay__ {
+            phy_mode = <5>;
+        };
+    };
+
+    fragment@1 {
+        target-path = "/soc/ethernet@fdc00000";
+
+        __overlay__ {
+            internal_phy = <1>;
+        };
+    };
+};
