@@ -52,24 +52,31 @@ PY
       --replace-fail 'static int __init aml_efuse_init(void)' 'static inline int aml_efuse_init(void)' \
       --replace-fail 'static void aml_efuse_exit(void)' 'static inline void aml_efuse_exit(void)'
 
-    # The vendor BCMDHD driver ships its Broadcom headers in a local include/
-    # directory, but its Makefile relies on Android-style EXTRA_CFLAGS plumbing
-    # that is not consistently honored in our linuxManualConfig/O= build.
-    # Also note that the upstream file later resets ccflags-y with :=, so patch
-    # that assignment directly instead of trying to append earlier in the file.
-    # This keeps sources like aiutils.c able to resolve <typedefs.h>.
+    # The vendor BCMDHD driver assumes an in-tree non-O= build and sets
+    # BCMDHD_ROOT = $(src). In our linuxManualConfig/O= build, the actual source
+    # tree lives under $(srctree), so plain $(src)/include still points at the
+    # object tree and local Broadcom headers like <typedefs.h> are not found.
+    # Rewrite both BCMDHD_ROOT and the Kbuild include flags to anchor them to
+    # $(srctree)/$(src).
     ${pkgs.python3}/bin/python3 - "$out/drivers/net/wireless/bcmdhd/Makefile" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
-needle = 'ccflags-y := $(EXTRA_CFLAGS)\n'
-insert = 'ccflags-y := $(EXTRA_CFLAGS) -I$(src)/include -I$(src)\nsubdir-ccflags-y += -I$(src)/include -I$(src)\n'
-if 'ccflags-y := $(EXTRA_CFLAGS) -I$(src)/include -I$(src)' not in text:
-    if needle not in text:
+root_needle = 'BCMDHD_ROOT = $(src)\n'
+root_insert = 'BCMDHD_ROOT := $(srctree)/$(src)\n'
+if 'BCMDHD_ROOT := $(srctree)/$(src)' not in text:
+    if root_needle not in text:
+        raise SystemExit("failed to patch BCMDHD_ROOT")
+    text = text.replace(root_needle, root_insert, 1)
+
+flags_needle = 'ccflags-y := $(EXTRA_CFLAGS)\n'
+flags_insert = 'ccflags-y := $(EXTRA_CFLAGS) -I$(srctree)/$(src)/include -I$(srctree)/$(src)\nsubdir-ccflags-y += -I$(srctree)/$(src)/include -I$(srctree)/$(src)\n'
+if 'ccflags-y := $(EXTRA_CFLAGS) -I$(srctree)/$(src)/include -I$(srctree)/$(src)' not in text:
+    if flags_needle not in text:
         raise SystemExit("failed to patch BCMDHD Makefile include paths")
-    text = text.replace(needle, insert, 1)
+    text = text.replace(flags_needle, flags_insert, 1)
 path.write_text(text)
 PY
   '';
