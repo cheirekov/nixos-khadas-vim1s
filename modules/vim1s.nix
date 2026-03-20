@@ -351,7 +351,11 @@ EOF
     extraMeta.branch = "5.15";
   };
 
-  overlayNames = [ "4k2k_fb" "i2cm_e" "i2s" "onewire" "panfrost" "pwm_f" "spdifout" "spi0" "uart_c" ];
+  # Khadas ships many VIM1S overlays, but the working Ubuntu image leaves
+  # fdt_overlays empty by default. Keep the base board DTB minimal during
+  # bring-up and opt into these overlays later once Ethernet/DRM/Wi-Fi are
+  # stable.
+  overlayNames = [ ];
 
   # Optional: include a signed U-Boot blob from repo root (for embedding via sdImage.postBuildCommands)
   uBootSigned =
@@ -512,17 +516,19 @@ in
     # claim the same DT alias leaves Ethernet without a usable MAC device.
     blacklistedKernelModules = [ "aml_drm" "mdio_mux_meson_g12a" ];
 
-    # Match the working Ubuntu runtime more closely: explicitly load the vendor
-    # Meson8b DWMAC glue module after switch_root. Its dependency graph pulls in
-    # amlogic_mdio_g12a, mdio_mux, inphy, stmmac_platform and related helpers.
-    kernelModules = [ "dwmac_meson8b" "amlogic_mdio_g12a" ];
+    # Match the working Ubuntu runtime more closely: bring up the Amlogic
+    # mailbox service before the vendor Ethernet stack. Live probing on the
+    # board shows that loading amlogic_mailbox immediately clears the repeated
+    # -EPROBE_DEFER loop for the MDIO mux, Ethernet MAC and HDMI CEC nodes.
+    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" ];
 
     # Keep the vendor MDIO mux from racing ahead of the DWMAC side during
-    # coldplug. On the current image the mux repeatedly defers on the parent
-    # MDIO path while the MAC does the same on the PHY side, so bias the load
-    # order toward the MAC glue first and then the mux.
+    # coldplug, and make the mailbox provider available before both. Without
+    # the mailbox service, the board spins on deferred probes for
+    # fe028000.mdio-multiplexer, fdc00000.ethernet and fe044000.aocec.
     extraModprobeConfig = ''
-      softdep amlogic_mdio_g12a pre: stmmac stmmac_platform dwmac_meson8b
+      softdep dwmac_meson8b pre: amlogic_mailbox
+      softdep amlogic_mdio_g12a pre: amlogic_mailbox stmmac stmmac_platform dwmac_meson8b
     '';
   };
 
