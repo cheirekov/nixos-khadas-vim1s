@@ -55,17 +55,18 @@ PY
     # The vendor BCMDHD driver ships its Broadcom headers in a local include/
     # directory, but its Makefile relies on Android-style EXTRA_CFLAGS plumbing
     # that is not consistently honored in our linuxManualConfig/O= build.
-    # Add the local include paths via normal Kbuild ccflags-y/subdir-ccflags-y
-    # so sources like aiutils.c can resolve <typedefs.h> and friends.
+    # Also note that the upstream file later resets ccflags-y with :=, so patch
+    # that assignment directly instead of trying to append earlier in the file.
+    # This keeps sources like aiutils.c able to resolve <typedefs.h>.
     ${pkgs.python3}/bin/python3 - "$out/drivers/net/wireless/bcmdhd/Makefile" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
-needle = 'EXTRA_CFLAGS += -I$(BCMDHD_ROOT)/include/ -I$(BCMDHD_ROOT)/\n'
-insert = needle + 'ccflags-y += -I$(src)/include -I$(src)\nsubdir-ccflags-y += -I$(src)/include -I$(src)\n'
-if 'subdir-ccflags-y += -I$(src)/include -I$(src)' not in text:
+needle = 'ccflags-y := $(EXTRA_CFLAGS)\n'
+insert = 'ccflags-y := $(EXTRA_CFLAGS) -I$(src)/include -I$(src)\nsubdir-ccflags-y += -I$(src)/include -I$(src)\n'
+if 'ccflags-y := $(EXTRA_CFLAGS) -I$(src)/include -I$(src)' not in text:
     if needle not in text:
         raise SystemExit("failed to patch BCMDHD Makefile include paths")
     text = text.replace(needle, insert, 1)
