@@ -3,6 +3,20 @@
 Last updated
 - 2026-03-21
 
+Commits To Know
+- Last known good networking baseline:
+  - `1fe9bf37104b7f7bd2930393436a97ce6cd7e907`
+  - On this image, Wi-Fi association, DNS resolution, and ping were confirmed
+    by the user.
+- Current `HEAD`:
+  - `a4cedd5723cec32dd79f0afa65f61cae155786ca`
+  - This commit tried to re-enable HDMI by auto-loading `aml_drm` during boot.
+  - Result: early boot hang on hardware.
+- Current local uncommitted direction:
+  - keep the Wi-Fi fix
+  - move HDMI probing out of boot and into the manual `vim1s-hdmi-probe`
+    helper
+
 Purpose
 - Recover the current board-support state quickly in a clean AI session.
 - Avoid re-deriving the same findings from UART logs, Ubuntu reference boots,
@@ -17,25 +31,26 @@ Current Milestone
   - `wlan0`
   - `wlan1`
   - `hci0`
+- `wlan1` is likely the vendor Broadcom secondary/P2P interface, not a second
+  physical radio.
 - `aml_drm` is still blacklisted intentionally, so HDMI is not enabled yet.
 
 Current Blocker
-- Wi-Fi firmware loading is failing because the vendor `dhd` stack was passing
-  absolute firmware paths into `request_firmware()`.
-- Live board evidence showed:
-  - the files exist under `/run/current-system/firmware/brcm`
-  - the kernel firmware loader path is already set to the realized firmware
-    closure
-  - `dhd` still fails with `Direct firmware load ... failed with error -2`
-- The current local fix changes:
-  - `options dhd firmware_path=brcm/ nvram_path=brcm/`
-- This fix is in the local working tree and needs a normal rebuild/reboot test.
+- Networking is effectively working at the known-good baseline commit above.
+- The current blocker is HDMI bring-up.
+- HDMI auto-load during boot is also not stable yet.
+  - A later attempt to put `aml_drm` back into `boot.kernelModules` regressed a
+    stable image into an early hang with no useful post-`/init` trace.
+  - The safer strategy is now: keep `aml_drm` blacklisted during boot and probe
+    it manually from userspace with `vim1s-hdmi-probe`.
 
 What Works Right Now
 - Stable headless boot to userspace.
 - Root on SD image partitioning works.
 - The vendor Ethernet stack now probes far enough to create `eth0`.
 - Bluetooth attach service is good enough to produce a live `hci0` controller.
+- Wi-Fi was confirmed working by the user on commit
+  `1fe9bf37104b7f7bd2930393436a97ce6cd7e907`.
 - Firmware compatibility derivation now builds and contains:
   - `fw_bcm43456c5_ag.bin`
   - `config_bcm43456c5_ag.txt`
@@ -44,9 +59,8 @@ What Works Right Now
   - `BCM4345C5.hcd`
 
 What Is Still Not Done
-- Verify Wi-Fi after the relative `brcm/` firmware path fix.
 - Revisit Ethernet only after a cable is actually plugged in.
-- Re-enable and debug HDMI only after wireless is stable.
+- Re-enable and debug HDMI from userspace only after wireless is stable.
 - Make the vendor wireless stack less fragile; hot-reloading is unsafe.
 
 Do Not Repeat
@@ -54,12 +68,17 @@ Do Not Repeat
   - The important step was loading `amlogic_mailbox` before the vendor Ethernet
     stack. That got us from endless probe defers to a real `eth0`.
 - Do not re-enable `aml_drm` yet.
-  - It was the original source of a vendor panic during bring-up.
+  - It was the original source of a vendor panic during bring-up, and a later
+    attempt to auto-load it at boot caused another early hang.
 - Do not hot-reload `amlogic_wireless` on the live board.
   - Manual `modprobe -r` / `modprobe` testing caused duplicate sysfs classes
     and a kernel panic.
 - Do not point `dhd` at absolute `/run/current-system/firmware/...` paths.
   - This was the exact reason for the current Wi-Fi failure.
+- Do not assume `HEAD` is the best recovery point.
+  - The confirmed-good networking baseline is
+    `1fe9bf37104b7f7bd2930393436a97ce6cd7e907`.
+  - `HEAD` was the experimental HDMI auto-load attempt.
 - Do not assume the older boot runbook is fully current.
   - Read this file first.
 
@@ -112,10 +131,17 @@ Important Findings
   - do not fight the kernel firmware loader with absolute paths
 
 Strategy
-1. Rebuild the current tree and verify Wi-Fi with the relative `brcm/` fix.
-2. If Wi-Fi comes up, test Bluetooth behavior again and only then move to HDMI.
-3. Keep HDMI last.
-4. Keep using the Ubuntu BSP as the cheat sheet.
+1. Keep the networking baseline from
+   `1fe9bf37104b7f7bd2930393436a97ce6cd7e907`.
+2. Apply the local HDMI rollback/manual-probe changes from the current working
+   tree.
+3. Rebuild and verify Wi-Fi still works.
+4. Test Bluetooth behavior again and only then move to HDMI.
+5. Keep HDMI manual and late:
+   - boot to a shell first
+   - run `vim1s-hdmi-probe`
+   - only consider boot-time DRM after that is stable
+6. Keep using the Ubuntu BSP as the cheat sheet.
    - Prefer copying the working runtime shape over inventing local variants.
 
 Immediate Next Commands
@@ -135,7 +161,18 @@ iw dev
 rfkill list
 hciconfig -a
 journalctl -b | grep -Ei 'dhd|firmware|wlan|bluetooth'
+sudo vim1s-hdmi-probe
 ```
+
+Hardware Checklist After HDMI
+1. Ethernet with a real cable
+2. IR receiver
+3. LEDs / PWM LED trigger
+4. GPIO buttons
+5. GPIO line access with `gpiodetect`, `gpioinfo`, `gpioset`
+6. Fan / PWM header behavior
+7. Audio
+8. VPU/video acceleration
 
 Fresh Session Checklist
 1. Open this file first.
@@ -152,11 +189,14 @@ Paste-Ready Prompt For A Clean AI Session
 Read docs/AI_HANDOFF.md first, then docs/BOOT_TEST_RUNBOOK.md.
 
 This repository is bringing up NixOS on Khadas VIM1S using the vendor 5.15 BSP.
-Current state: board boots, eth0 exists, wlan0/wlan1/hci0 exist, HDMI is still
-disabled, and the latest local untested fix in modules/vim1s.nix changes dhd
-from absolute /run/current-system/firmware/brcm paths to relative brcm/ paths.
+Current state: the last known good networking baseline is commit
+1fe9bf37104b7f7bd2930393436a97ce6cd7e907, where Wi-Fi worked. Current HEAD
+a4cedd5723cec32dd79f0afa65f61cae155786ca was an HDMI auto-load experiment that
+hangs during boot. The current local uncommitted fix keeps networking and moves
+HDMI probing out of boot into vim1s-hdmi-probe.
 
 Do not re-derive old boot issues. Do not re-enable aml_drm yet. Do not hot-reload
-amlogic_wireless. Start from the current handoff state, inspect git diff, inspect
-uart-115200.log, and continue from there.
+amlogic_wireless. Start from the known-good networking baseline plus the local
+HDMI rollback changes, inspect git diff, inspect uart-115200.log, and continue
+from there.
 ```

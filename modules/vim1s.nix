@@ -168,6 +168,28 @@ PY
 
     exec ${pkgs.bluez}/bin/hciattach -n -s 115200 /dev/ttyS1 bcm43xx 2000000
   '';
+  hdmiProbeTool = pkgs.writeShellScriptBin "vim1s-hdmi-probe" ''
+    #!/bin/sh
+    set -eux
+
+    # Keep HDMI bring-up manual until the vendor DRM stack is stable enough to
+    # survive coldplug. This lets the board boot to a shell first, then probes
+    # the risky path from userspace where UART logs are far easier to capture.
+    modprobe amlogic-inphy || true
+    modprobe aml_drm
+    sleep 2
+
+    lsmod | grep -E 'aml_drm|aml_media|amhdmitx|drm' || true
+    dmesg | grep -Ei 'aml_drm|aml_media|amhdmitx|hdmi|drm|vpu|rdma' | tail -n 200 || true
+
+    for node in /sys/class/drm/*; do
+      [ -e "$node" ] || continue
+      echo "=== $node ==="
+      [ -r "$node/status" ] && cat "$node/status" || true
+      [ -r "$node/enabled" ] && cat "$node/enabled" || true
+      [ -r "$node/modes" ] && cat "$node/modes" || true
+    done
+  '';
 
   # Pre-generate a non-interactive .config from vendor kvims_defconfig to avoid Nix's generate-config loop
   kvimsConfig = pkgs.stdenv.mkDerivation {
@@ -635,14 +657,17 @@ in
     # Also block the upstream mdio_mux_meson_g12a helper. Ubuntu's working VIM1S
     # image uses the vendor amlogic_mdio_g12a path instead, and letting both
     # claim the same DT alias leaves Ethernet without a usable MAC device.
-    blacklistedKernelModules = [ "mdio_mux_meson_g12a" "brcmfmac" ];
+    blacklistedKernelModules = [ "aml_drm" "mdio_mux_meson_g12a" "brcmfmac" ];
 
     # Match the working Ubuntu runtime more closely: bring up the Amlogic
     # mailbox service before the vendor Ethernet stack. Live probing on the
     # board shows that loading amlogic_mailbox immediately clears the repeated
     # -EPROBE_DEFER loop for the MDIO mux, Ethernet MAC and HDMI CEC nodes.
-    # Add amlogic-inphy before aml_drm per Ubuntu module ordering.
-    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" "amlogic-wireless" "dhd" "amlogic-inphy" "aml_drm" ];
+    # Keep HDMI bring-up out of coldplug for now. The last attempt to load
+    # aml_drm during boot regressed a previously stable image into an early
+    # hang with no useful post-/init trace. Probe it manually from userspace
+    # with vim1s-hdmi-probe until the exact module/runtime contract is known.
+    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" "amlogic-wireless" "dhd" "amlogic-inphy" ];
 
     # Keep the vendor MDIO mux from racing ahead of the DWMAC side during
     # coldplug, and make the mailbox provider available before both. Without
@@ -859,6 +884,7 @@ in
     usbutils
     pciutils
     ubootTools
+    hdmiProbeTool
   ];
 
   # Make serial console friendlier during bring-up
