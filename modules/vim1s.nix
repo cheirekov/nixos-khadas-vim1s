@@ -350,6 +350,18 @@ CONFIG_AMLOGIC_MDIO_G12A=m
 CONFIG_AMLOGIC_MEDIA_MODULE=m
 CONFIG_AMLOGIC_MEDIA_UTILS=m
 CONFIG_AMLOGIC_DRM=m
+CONFIG_AMLOGIC_DRM_VPU=y
+CONFIG_AMLOGIC_DRM_USE_ION=y
+CONFIG_AMLOGIC_DRM_EMULATE_FBDEV=y
+CONFIG_AMLOGIC_VPU=y
+CONFIG_AMLOGIC_VOUT=y
+CONFIG_AMLOGIC_VOUT_CLK_SERVE=y
+CONFIG_AMLOGIC_VOUT_SERVE=y
+CONFIG_AMLOGIC_VOUT2_SERVE=y
+CONFIG_AMLOGIC_VOUT3_SERVE=y
+CONFIG_AMLOGIC_HDMITX_COMMON=y
+CONFIG_AMLOGIC_HDMITX21=y
+CONFIG_AMLOGIC_HDMITX=y
 CONFIG_AMLOGIC_SECMON=m
 CONFIG_AMLOGIC_CPU_INFO=m
 CONFIG_BCMDHD=m
@@ -620,19 +632,17 @@ in
     initrd.availableKernelModules = lib.mkForce [ ];
     initrd.kernelModules = lib.mkForce [ ];
 
-    # Stage 2 currently panics when udev auto-loads the vendor DRM stack.
-    # Keep the board headless until the aml_drm/aml_media bind path is debugged.
-    #
     # Also block the upstream mdio_mux_meson_g12a helper. Ubuntu's working VIM1S
     # image uses the vendor amlogic_mdio_g12a path instead, and letting both
     # claim the same DT alias leaves Ethernet without a usable MAC device.
-    blacklistedKernelModules = [ "aml_drm" "mdio_mux_meson_g12a" "brcmfmac" ];
+    blacklistedKernelModules = [ "mdio_mux_meson_g12a" "brcmfmac" ];
 
     # Match the working Ubuntu runtime more closely: bring up the Amlogic
     # mailbox service before the vendor Ethernet stack. Live probing on the
     # board shows that loading amlogic_mailbox immediately clears the repeated
     # -EPROBE_DEFER loop for the MDIO mux, Ethernet MAC and HDMI CEC nodes.
-    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" "amlogic-wireless" "dhd" ];
+    # Add amlogic-inphy before aml_drm per Ubuntu module ordering.
+    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" "amlogic-wireless" "dhd" "amlogic-inphy" "aml_drm" ];
 
     # Keep the vendor MDIO mux from racing ahead of the DWMAC side during
     # coldplug, and make the mailbox provider available before both. Without
@@ -642,6 +652,8 @@ in
       softdep dwmac_meson8b pre: amlogic_mailbox
       softdep amlogic_mdio_g12a pre: amlogic_mailbox stmmac stmmac_platform dwmac_meson8b
       softdep dhd pre: amlogic-wireless cfg80211
+      softdep amlogic-inphy pre: amlogic-phy-debug
+      softdep aml_drm pre: amlogic-inphy
       # The kernel firmware loader on NixOS already searches the realized
       # firmware closure directly (see /sys/module/firmware_class/parameters/path
       # on the live board). The vendor dhd stack must therefore pass relative
@@ -740,6 +752,7 @@ in
 
   # Minimal useful services on first boot
   services.openssh.enable = true;
+  networking.firewall.enable = false;
   services.getty.autologinUser = lib.mkDefault "nixos";
   systemd.services."serial-getty@ttyS0".enable = true;
   systemd.services.bluetooth-khadas = {
