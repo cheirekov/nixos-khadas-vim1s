@@ -132,7 +132,7 @@ PY
       ${pkgs.armbian-firmware}/lib/firmware/brcm/config_bcm43456c5_ag.txt
 
     copy_fw "$out/lib/firmware/brcm/clm_bcm43456c5_ag.blob" \
-      ${pkgs.armbian-firmware}/lib/firmware/brcm/clm_bcm43456c5_ag.blob \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/brcmfmac43456-sdio.clm_blob \
       ${pkgs.linux-firmware}/lib/firmware/brcm/brcmfmac43456-sdio.clm_blob
 
     copy_fw "$out/lib/firmware/brcm/nvram_ap6256.txt" \
