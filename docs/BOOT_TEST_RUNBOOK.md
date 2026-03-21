@@ -1,5 +1,10 @@
 # Khadas VIM1S (Amlogic S905Y4) — Hardware Boot Test Runbook for NixOS SD Image
 
+Current source of truth
+- Read `docs/AI_HANDOFF.md` first for the latest state, current blocker, and
+  next step. This runbook is intentionally more stable and may lag behind the
+  most recent bring-up findings.
+
 Objective
 - Verify that the generated SD image boots NixOS on VIM1S using:
   - Vendor 5.15.137 kernel
@@ -8,14 +13,21 @@ Objective
 - Provide fast diagnostics and fallback commands if it doesn’t boot on first try.
 
 Current Bring-Up Snapshot
-- As of March 20, 2026, the NixOS image boots successfully to stage 2 and a
-  working shell when the risky vendor DRM path is disabled.
+- As of March 21, 2026, the NixOS image boots successfully to a working shell
+  when the risky vendor DRM path is disabled.
 - The current headless boot path relies on:
   - `boot.initrd.compressor = "gzip"`
   - root mounted directly from `/dev/mmcblk1p2`
   - `/boot/firmware` mounted from `/dev/mmcblk1p1`
   - `aml_drm` blacklisted to avoid a vendor DRM/media panic during `udev`
     coldplug
+- Current networking/wireless milestone:
+  - `eth0` exists
+  - `wlan0` and `wlan1` exist
+  - `hci0` exists
+- Current active blocker:
+  - vendor `dhd` firmware loading still needs final verification with the
+    latest relative `brcm/` path fix in `modules/vim1s.nix`
 - UART logs from the successful headless Nix boot and the working Ubuntu
   reference boot are kept locally as:
   - `uart-115200.log`
@@ -65,16 +77,18 @@ Current Nix Kernel State
   - `aml_drm` is still blacklisted on the Nix image
   - this is a deliberate bring-up choice to keep the board bootable while
     Ethernet and wireless are being aligned with the vendor stack
-- Wi‑Fi is not fixed yet:
-  - `CONFIG_BCMDHD` is still disabled on the Nix image
-  - Bluetooth UART support is enabled, but the Broadcom combo wireless path is
-    not yet matched to Ubuntu
+- Wi‑Fi/Bluetooth are partially aligned with Ubuntu now:
+  - `CONFIG_BCMDHD=m`
+  - vendor `amlogic-wireless` and `dhd` are loaded
+  - Broadcom firmware compatibility files are packaged explicitly
+  - Bluetooth attach service exists and produces `hci0`
+  - the remaining Wi‑Fi blocker is firmware lookup semantics, not missing
+    kernel support
 
 Next Bring-Up Order
-1. Re-test the latest Nix image on hardware to confirm the Ethernet MDIO patch
-   produces `eth0`.
-2. Enable the Broadcom `dhd` path and firmware packaging so Wi‑Fi/Bluetooth
-   match the Ubuntu reference.
+1. Re-test the latest Nix image on hardware to confirm the relative `brcm/`
+   firmware-path fix brings Wi‑Fi up.
+2. Re-test Ethernet with a real cable only after wireless is stable.
 3. Reintroduce `aml_drm` carefully with vendor-style module ordering and UART
    attached, then validate HDMI.
 

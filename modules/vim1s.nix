@@ -642,7 +642,12 @@ in
       softdep dwmac_meson8b pre: amlogic_mailbox
       softdep amlogic_mdio_g12a pre: amlogic_mailbox stmmac stmmac_platform dwmac_meson8b
       softdep dhd pre: amlogic-wireless cfg80211
-      options dhd firmware_path=/run/current-system/firmware/brcm/ nvram_path=/run/current-system/firmware/brcm/
+      # The kernel firmware loader on NixOS already searches the realized
+      # firmware closure directly (see /sys/module/firmware_class/parameters/path
+      # on the live board). The vendor dhd stack must therefore pass relative
+      # names under brcm/, not absolute /run/... paths, or request_firmware()
+      # returns ENOENT even though the files exist.
+      options dhd firmware_path=brcm/ nvram_path=brcm/
     '';
   };
 
