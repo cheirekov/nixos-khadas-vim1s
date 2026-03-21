@@ -99,7 +99,10 @@ PY
       shift
       local src
       for src in "$@"; do
-        if [ -f "$src" ]; then
+        if [ -f "$src" ] || [ -f "$src.xz" ]; then
+          if [ ! -f "$src" ] && [ -f "$src.xz" ]; then
+            src="$src.xz"
+          fi
           case "$src" in
             *.xz)
               xz -dc "$src" > "$dst"
@@ -108,6 +111,7 @@ PY
               cp "$src" "$dst"
               ;;
           esac
+          chmod 0644 "$dst"
           return 0
         fi
       done
@@ -126,6 +130,10 @@ PY
 
     copy_fw "$out/lib/firmware/brcm/config_bcm43456c5_ag.txt" \
       ${pkgs.armbian-firmware}/lib/firmware/brcm/config_bcm43456c5_ag.txt
+
+    copy_fw "$out/lib/firmware/brcm/clm_bcm43456c5_ag.blob" \
+      ${pkgs.armbian-firmware}/lib/firmware/brcm/clm_bcm43456c5_ag.blob \
+      ${pkgs.linux-firmware}/lib/firmware/brcm/brcmfmac43456-sdio.clm_blob
 
     copy_fw "$out/lib/firmware/brcm/nvram_ap6256.txt" \
       ${pkgs.armbian-firmware}/lib/firmware/brcm/nvram_ap6256.txt
@@ -634,7 +642,7 @@ in
       softdep dwmac_meson8b pre: amlogic_mailbox
       softdep amlogic_mdio_g12a pre: amlogic_mailbox stmmac stmmac_platform dwmac_meson8b
       softdep dhd pre: amlogic-wireless cfg80211
-      options dhd firmware_path=/lib/firmware/brcm/ nvram_path=/lib/firmware/brcm/
+      options dhd firmware_path=/run/current-system/firmware/brcm/ nvram_path=/run/current-system/firmware/brcm/
     '';
   };
 
@@ -646,9 +654,15 @@ in
   };
 
   # Firmware (Wi-Fi/BT/etc.)
-  hardware.firmware = [ pkgs.armbian-firmware pkgs.linux-firmware vim1sWirelessFirmwareCompat ];
+  hardware.firmware = [ pkgs.linux-firmware vim1sWirelessFirmwareCompat ];
+  # Khadas' vendor Broadcom stack passes explicit firmware filenames into
+  # request_firmware(). On NixOS 25.11 the default xz-compressed firmware tree
+  # leaves only *.xz entries under /run/current-system/firmware, which dhd and
+  # hciattach do not handle. Keep this board on an uncompressed firmware tree.
+  hardware.firmwareCompression = lib.mkForce "none";
   hardware.enableRedistributableFirmware = true;
   hardware.bluetooth.enable = true;
+  environment.etc."firmware".source = "${vim1sWirelessFirmwareCompat}/lib/firmware/brcm";
 
   # Filesystems we want in userspace/initrd
   boot.supportedFilesystems = [ "vfat" "ext4" "btrfs" "f2fs" ];
