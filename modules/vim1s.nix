@@ -168,6 +168,123 @@ PY
 
     exec ${pkgs.bluez}/bin/hciattach -n -s 115200 /dev/ttyS1 bcm43xx 2000000
   '';
+  hwSurveyTool = pkgs.writeShellScriptBin "vim1s-hw-survey" ''
+    #!${pkgs.bash}/bin/bash
+    set -u
+
+    export PATH=${lib.makeBinPath [
+      pkgs.coreutils
+      pkgs.findutils
+      pkgs.gnugrep
+      pkgs.gawk
+      pkgs.gnused
+      pkgs.procps
+      pkgs.kmod
+      pkgs.iproute2
+      pkgs.ethtool
+      pkgs.iw
+      pkgs.util-linux
+      pkgs.systemd
+      pkgs.bluez
+      pkgs.alsa-utils
+      pkgs.v4l-utils
+      pkgs.libgpiod
+      pkgs.i2c-tools
+      pkgs.evtest
+    ]}
+
+    section() {
+      echo
+      echo "===== $* ====="
+    }
+
+    run() {
+      echo "\$ $*"
+      "$@" 2>&1 || true
+    }
+
+    run_sh() {
+      echo "\$ $*"
+      ${pkgs.bash}/bin/bash -lc "$*" 2>&1 || true
+    }
+
+    section "System"
+    run date -u
+    run uname -a
+    run cat /proc/cmdline
+    run systemctl is-system-running
+
+    section "Kernel Modules"
+    run_sh "lsmod | grep -Ei 'dhd|amlogic|dwmac|stmmac|drm|hdmi|snd|audio|ir|cec|gpio|pwm|bluetooth|wifi'"
+
+    section "Network"
+    run ip -br link
+    run ip -br addr
+    [ -e /sys/class/net/eth0 ] && run ethtool eth0
+    [ -e /sys/class/net/wlan0 ] && run iw dev
+
+    section "Bluetooth And RFKill"
+    run rfkill list
+    run hciconfig -a
+    run systemctl status bluetooth-khadas --no-pager
+
+    section "DRM HDMI"
+    for node in /sys/class/drm/card*-*; do
+      [ -e "$node" ] || continue
+      echo "--- $node ---"
+      [ -r "$node/status" ] && run cat "$node/status"
+      [ -r "$node/enabled" ] && run cat "$node/enabled"
+      [ -r "$node/modes" ] && run cat "$node/modes"
+    done
+
+    section "Audio"
+    run aplay -l
+    run arecord -l
+
+    section "Input Devices"
+    run_sh "grep -E '^(N|H|B):' /proc/bus/input/devices"
+    command -v ir-keytable >/dev/null 2>&1 && run ir-keytable || true
+
+    section "LEDs"
+    for led in /sys/class/leds/*; do
+      [ -e "$led" ] || continue
+      echo "--- $led ---"
+      [ -r "$led/brightness" ] && run cat "$led/brightness"
+      [ -r "$led/max_brightness" ] && run cat "$led/max_brightness"
+      [ -r "$led/trigger" ] && run cat "$led/trigger"
+    done
+
+    section "GPIO"
+    run_sh "ls -l /dev/gpiochip*"
+    run gpiodetect
+    run gpioinfo
+
+    section "I2C"
+    run i2cdetect -l
+
+    section "Thermal"
+    for zone in /sys/class/thermal/thermal_zone*; do
+      [ -d "$zone" ] || continue
+      echo "--- $zone ---"
+      [ -r "$zone/type" ] && run cat "$zone/type"
+      [ -r "$zone/temp" ] && run cat "$zone/temp"
+    done
+
+    section "Recent Relevant Dmesg"
+    run_sh "dmesg | grep -Ei 'dhd|wifi|bluetooth|firmware|stmmac|dwmac|mdio|phy|drm|hdmi|cec|snd|audio|auge|tdm|spdif|pdm|ir|gpio|led|pwm' | tail -n 300"
+  '';
+  audioProbeTool = pkgs.writeShellScriptBin "vim1s-audio-probe" ''
+    #!/bin/sh
+    set -eux
+
+    modprobe amlogic-snd-codec-t9015 || true
+    sleep 2
+
+    lsmod | grep -Ei 't9015|snd|audio|auge' || true
+    dmesg | grep -Ei 't9015|snd|audio|auge|tdm|spdif|pdm' | tail -n 200 || true
+    aplay -l || true
+    arecord -l || true
+  '';
   hdmiProbeTool = pkgs.writeShellScriptBin "vim1s-hdmi-probe" ''
     #!/bin/sh
     set -eux
@@ -372,18 +489,6 @@ CONFIG_AMLOGIC_MDIO_G12A=m
 CONFIG_AMLOGIC_MEDIA_MODULE=m
 CONFIG_AMLOGIC_MEDIA_UTILS=m
 CONFIG_AMLOGIC_DRM=m
-CONFIG_AMLOGIC_DRM_VPU=y
-CONFIG_AMLOGIC_DRM_USE_ION=y
-CONFIG_AMLOGIC_DRM_EMULATE_FBDEV=y
-CONFIG_AMLOGIC_VPU=y
-CONFIG_AMLOGIC_VOUT=y
-CONFIG_AMLOGIC_VOUT_CLK_SERVE=y
-CONFIG_AMLOGIC_VOUT_SERVE=y
-CONFIG_AMLOGIC_VOUT2_SERVE=y
-CONFIG_AMLOGIC_VOUT3_SERVE=y
-CONFIG_AMLOGIC_HDMITX_COMMON=y
-CONFIG_AMLOGIC_HDMITX21=y
-CONFIG_AMLOGIC_HDMITX=y
 CONFIG_AMLOGIC_SECMON=m
 CONFIG_AMLOGIC_CPU_INFO=m
 CONFIG_BCMDHD=m
@@ -629,7 +734,9 @@ in
 
     # Keep bring-up on the serial console only. The vendor kernel registers the
     # main UART as ttyS0, so use that for the real Linux console and serial
-    # getty. Earlycon still comes from the DT stdout-path.
+    # getty. Keep the conservative 115200 userspace console for now. The
+    # attempt to stay on 921600 all the way through made the log disappear
+    # exactly at the /init handoff, which is too ambiguous during bring-up.
     kernelParams = lib.mkForce [
       "console=ttyS0,115200n8"
       "console=tty0"
@@ -667,7 +774,13 @@ in
     # aml_drm during boot regressed a previously stable image into an early
     # hang with no useful post-/init trace. Probe it manually from userspace
     # with vim1s-hdmi-probe until the exact module/runtime contract is known.
-    kernelModules = [ "amlogic_mailbox" "dwmac_meson8b" "amlogic_mdio_g12a" "amlogic-wireless" "dhd" "amlogic-inphy" ];
+    kernelModules = [
+      "amlogic_mailbox"
+      "dwmac_meson8b"
+      "amlogic_mdio_g12a"
+      "amlogic-wireless"
+      "dhd"
+    ];
 
     # Keep the vendor MDIO mux from racing ahead of the DWMAC side during
     # coldplug, and make the mailbox provider available before both. Without
@@ -677,8 +790,6 @@ in
       softdep dwmac_meson8b pre: amlogic_mailbox
       softdep amlogic_mdio_g12a pre: amlogic_mailbox stmmac stmmac_platform dwmac_meson8b
       softdep dhd pre: amlogic-wireless cfg80211
-      softdep amlogic-inphy pre: amlogic-phy-debug
-      softdep aml_drm pre: amlogic-inphy
       # The kernel firmware loader on NixOS already searches the realized
       # firmware closure directly (see /sys/module/firmware_class/parameters/path
       # on the live board). The vendor dhd stack must therefore pass relative
@@ -792,7 +903,6 @@ in
       RestartSec = "2s";
     };
   };
-
   users.users.nixos = {
     isNormalUser = true;
     extraGroups = [ "wheel" "networkmanager" ];
@@ -879,11 +989,15 @@ in
     alsa-utils
     v4l-utils
     libgpiod
+    i2c-tools
+    evtest
     strace
     lsof
     usbutils
     pciutils
     ubootTools
+    hwSurveyTool
+    audioProbeTool
     hdmiProbeTool
   ];
 

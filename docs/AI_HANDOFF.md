@@ -12,6 +12,11 @@ Commits To Know
   - `a4cedd5723cec32dd79f0afa65f61cae155786ca`
   - This commit tried to re-enable HDMI by auto-loading `aml_drm` during boot.
   - Result: early boot hang on hardware.
+- Later follow-up lesson:
+  - Simply blacklisting `aml_drm` was not enough to recover boot if the HDMI
+    attempt also forced VPU/VOUT/HDMITX symbols to `=y` in the kernel config.
+  - Those built-in symbols must also be removed to get back to the known-good
+    networking baseline before testing HDMI manually.
 - Current local uncommitted direction:
   - keep the Wi-Fi fix
   - move HDMI probing out of boot and into the manual `vim1s-hdmi-probe`
@@ -26,6 +31,8 @@ Current Milestone
 - NixOS 25.11 SD image boots reliably to a shell on real hardware.
 - U-Boot extlinux boot path is working.
 - AWS remote builds, SSM logging, and the S3 binary cache are working.
+- The board now has an automatic post-boot hardware survey at:
+  - `/var/log/vim1s-hw-survey.log`
 - The board now exposes:
   - `eth0`
   - `wlan0`
@@ -43,6 +50,8 @@ Current Blocker
     stable image into an early hang with no useful post-`/init` trace.
   - The safer strategy is now: keep `aml_drm` blacklisted during boot and probe
     it manually from userspace with `vim1s-hdmi-probe`.
+  - Also keep the extra forced HDMI/VPU/VOUT built-ins out of the config until
+    manual HDMI probing is stable.
 
 What Works Right Now
 - Stable headless boot to userspace.
@@ -51,6 +60,8 @@ What Works Right Now
 - Bluetooth attach service is good enough to produce a live `hci0` controller.
 - Wi-Fi was confirmed working by the user on commit
   `1fe9bf37104b7f7bd2930393436a97ce6cd7e907`.
+- The console policy is now aligned with Ubuntu:
+  - `console=ttyS0,921600n8`
 - Firmware compatibility derivation now builds and contains:
   - `fw_bcm43456c5_ag.bin`
   - `config_bcm43456c5_ag.txt`
@@ -70,6 +81,10 @@ Do Not Repeat
 - Do not re-enable `aml_drm` yet.
   - It was the original source of a vendor panic during bring-up, and a later
     attempt to auto-load it at boot caused another early hang.
+- Do not keep the extra forced HDMI/VPU/VOUT symbols from the failed HDMI
+  attempt.
+  - They were still able to perturb boot even after `aml_drm` was blacklisted
+    again.
 - Do not hot-reload `amlogic_wireless` on the live board.
   - Manual `modprobe -r` / `modprobe` testing caused duplicate sysfs classes
     and a kernel panic.
@@ -87,6 +102,8 @@ Asset Locations
   - `uart-115200.log`
 - Earlier reference boot / vendor boot log:
   - `uart-921600.log`
+- Ubuntu BSP hardware matrix:
+  - `docs/UBUNTU_BSP_HARDWARE_MATRIX.md`
 - Ubuntu reference extraction:
   - `.tmp-ubuntu-ref/`
 - Main Nix board module:
@@ -107,12 +124,30 @@ Known Good Reference
   - Broadcom `dhd` wireless stack
   - Bluetooth over UART
   - HDMI viability
+- The durable Ubuntu BSP summary now lives in:
+  - `docs/UBUNTU_BSP_HARDWARE_MATRIX.md`
 - Important lesson from Ubuntu:
   - the board support exists already
   - the hard part in NixOS is packaging and runtime wiring, not inventing new
     kernel support
 
 Important Findings
+- Latest live hardware survey on the working Wi-Fi image showed:
+  - Wi-Fi is up and firmware loads successfully
+  - Bluetooth is up and running as Broadcom over UART
+  - `eth0` exists, but still fails PHY attach with:
+    - `validation of rmii ... failed: -22`
+    - `no phy found`
+    - `stmmac_open: Cannot attach to PHY`
+  - `pwmled` exists and exposes triggers
+  - `gpiochip0` exists and shows active consumers for SD, Wi-Fi, and BT
+  - no soundcards yet
+  - no I2C adapters listed yet
+  - `ir-keytable` still reports no devices
+- The next local patch after that survey does two things:
+  - fixes `vim1s-hw-survey` so `systemctl` and DRM connector discovery work
+  - loads the vendor `amlogic-snd-codec-t9015` module explicitly to try to
+    complete the `auge_sound` path
 - Firmware compat package is correct now.
   - The last AWS failure was a bad source path for
     `clm_bcm43456c5_ag.blob`.
@@ -133,15 +168,16 @@ Important Findings
 Strategy
 1. Keep the networking baseline from
    `1fe9bf37104b7f7bd2930393436a97ce6cd7e907`.
-2. Apply the local HDMI rollback/manual-probe changes from the current working
+2. Read `docs/UBUNTU_BSP_HARDWARE_MATRIX.md` before changing NixOS bring-up.
+3. Apply the local HDMI rollback/manual-probe changes from the current working
    tree.
-3. Rebuild and verify Wi-Fi still works.
-4. Test Bluetooth behavior again and only then move to HDMI.
-5. Keep HDMI manual and late:
+4. Rebuild and verify Wi-Fi still works.
+5. Test Bluetooth behavior again and only then move to HDMI.
+6. Keep HDMI manual and late:
    - boot to a shell first
    - run `vim1s-hdmi-probe`
    - only consider boot-time DRM after that is stable
-6. Keep using the Ubuntu BSP as the cheat sheet.
+7. Keep using the Ubuntu BSP as the cheat sheet.
    - Prefer copying the working runtime shape over inventing local variants.
 
 Immediate Next Commands
@@ -156,6 +192,7 @@ sync
 ```
 - After boot:
 ```bash
+cat /var/log/vim1s-hw-survey.log
 ip -br link
 iw dev
 rfkill list
@@ -176,13 +213,14 @@ Hardware Checklist After HDMI
 
 Fresh Session Checklist
 1. Open this file first.
-2. Open `docs/BOOT_TEST_RUNBOOK.md`.
-3. Check `git status --short`.
-4. Read the latest UART log:
+2. Open `docs/UBUNTU_BSP_HARDWARE_MATRIX.md`.
+3. Open `docs/BOOT_TEST_RUNBOOK.md`.
+4. Check `git status --short`.
+5. Read the latest UART log:
 ```bash
 rg -a -n "dhd|eth0|wlan|hci0|firmware|bluetooth|panic|Oops" uart-115200.log | tail -n 200
 ```
-5. If the board is live, use UART instead of guessing from old logs.
+6. If the board is live, use UART instead of guessing from old logs.
 
 Paste-Ready Prompt For A Clean AI Session
 ```text

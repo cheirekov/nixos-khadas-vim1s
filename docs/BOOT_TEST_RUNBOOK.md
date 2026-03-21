@@ -4,6 +4,8 @@ Current source of truth
 - Read `docs/AI_HANDOFF.md` first for the latest state, current blocker, and
   next step. This runbook is intentionally more stable and may lag behind the
   most recent bring-up findings.
+- Read `docs/UBUNTU_BSP_HARDWARE_MATRIX.md` next for the working vendor BSP
+  shape before changing NixOS again.
 
 Objective
 - Verify that the generated SD image boots NixOS on VIM1S using:
@@ -15,6 +17,8 @@ Objective
 Current Bring-Up Snapshot
 - As of March 21, 2026, the NixOS image boots successfully to a working shell
   when the risky vendor DRM path is disabled.
+- The image now collects a post-boot board snapshot automatically at:
+  - `/var/log/vim1s-hw-survey.log`
 - The current headless boot path relies on:
   - `boot.initrd.compressor = "gzip"`
   - root mounted directly from `/dev/mmcblk1p2`
@@ -99,7 +103,7 @@ Prerequisites
 - Flash to microSD:
   - zstdcat result/sd-image/*.img.zst | sudo dd of=/dev/sdX bs=4M conv=fsync status=progress
 - UART:
-  - 921600 8N1 on ttyS0 (fallback 115200 8N1 on ttyAML0)
+  - 921600 8N1 on ttyS0
 - Optional (raw SD first-stage):
   - Place u-boot.bin.sd.bin.signed.new next to flake.nix before build to embed a signed first-stage via dd into the image.
 

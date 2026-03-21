@@ -3,3 +3,4 @@ result*
 *.out
 .vscode/
 .tmp*
+*.xz
