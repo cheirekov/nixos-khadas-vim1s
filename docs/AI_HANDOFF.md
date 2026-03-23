@@ -18,9 +18,11 @@ Commits To Know
   - Those built-in symbols must also be removed to get back to the known-good
     networking baseline before testing HDMI manually.
 - Current local uncommitted direction:
-  - keep the Wi-Fi fix
-  - move HDMI probing out of boot and into the manual `vim1s-hdmi-probe`
+  - keep the working Wi-Fi/Bluetooth baseline
+  - keep HDMI probing out of boot and in the manual `vim1s-hdmi-probe`
     helper
+  - add low-risk hardware coverage for IR, I2C userspace access, and GPIO/I2C
+    permissions without touching the risky audio/HDMI boot path
 
 Purpose
 - Recover the current board-support state quickly in a clean AI session.
@@ -31,8 +33,10 @@ Current Milestone
 - NixOS 25.11 SD image boots reliably to a shell on real hardware.
 - U-Boot extlinux boot path is working.
 - AWS remote builds, SSM logging, and the S3 binary cache are working.
-- The board now has an automatic post-boot hardware survey at:
-  - `/var/log/vim1s-hw-survey.log`
+- The board now has manual hardware probe helpers available on-device:
+  - `vim1s-hw-survey`
+  - `vim1s-audio-probe`
+  - `vim1s-hdmi-probe`
 - The board now exposes:
   - `eth0`
   - `wlan0`
@@ -52,6 +56,14 @@ Current Blocker
     it manually from userspace with `vim1s-hdmi-probe`.
   - Also keep the extra forced HDMI/VPU/VOUT built-ins out of the config until
     manual HDMI probing is stable.
+- Manual HDMI probing now reproduces the real crash reliably:
+  - panic in `rdma_write_reg_bits` from `aml_media`
+  - called from `meson_vpu_write_reg_bits`
+  - through `osd_afbc_hw_init` / `vpu_pipeline_init` in `aml_drm`
+- Audio is still incomplete:
+  - `auge_sound` still defers with codec-dai lookup failures
+  - manual `modprobe amlogic-snd-codec-t9015` still leaves
+    `probe of fe01a000.t9015 returned -517`
 
 What Works Right Now
 - Stable headless boot to userspace.
@@ -60,8 +72,10 @@ What Works Right Now
 - Bluetooth attach service is good enough to produce a live `hci0` controller.
 - Wi-Fi was confirmed working by the user on commit
   `1fe9bf37104b7f7bd2930393436a97ce6cd7e907`.
-- The console policy is now aligned with Ubuntu:
-  - `console=ttyS0,921600n8`
+- Current conservative Nix console policy is:
+  - `console=ttyS0,115200n8`
+- Ubuntu still proves `ttyS0,921600` is viable, but console speed is not the
+  current blocker.
 - Firmware compatibility derivation now builds and contains:
   - `fw_bcm43456c5_ag.bin`
   - `config_bcm43456c5_ag.txt`
@@ -142,12 +156,23 @@ Important Findings
   - `pwmled` exists and exposes triggers
   - `gpiochip0` exists and shows active consumers for SD, Wi-Fi, and BT
   - no soundcards yet
-  - no I2C adapters listed yet
+  - no I2C adapters were listed yet
   - `ir-keytable` still reports no devices
-- The next local patch after that survey does two things:
-  - fixes `vim1s-hw-survey` so `systemctl` and DRM connector discovery work
-  - loads the vendor `amlogic-snd-codec-t9015` module explicitly to try to
-    complete the `auge_sound` path
+- The most recent manual probes refined those findings:
+  - `vim1s-audio-probe` confirmed `amlogic-snd-codec-t9015` loads, but the
+    codec node still returns `-517`, so the missing piece is not just the
+    module name
+  - `vim1s-hdmi-probe` confirmed the vendor DRM crash is still the same AFBC /
+    VPU path panic inside `aml_drm` and `aml_media`
+  - `i2cdetect -l` being empty is partly a userspace-exposure issue because
+    `CONFIG_I2C_CHARDEV=m` was enabled but `i2c-dev` was not loaded
+  - IR is a concrete kernel-config gap because the DTS contains a live
+    `amlogic, meson-ir` node but `CONFIG_IR_MESON` was still unset
+- Current local patch after those probes does four low-risk things:
+  - enables `CONFIG_IR_MESON=m`
+  - loads `i2c-dev` and `meson-ir`
+  - grants the `nixos` user access to GPIO, I2C, and input device nodes
+  - extends `vim1s-hw-survey` to show `/dev/gpiomem*` and `/dev/i2c*`
 - Firmware compat package is correct now.
   - The last AWS failure was a bad source path for
     `clm_bcm43456c5_ag.blob`.
@@ -177,7 +202,9 @@ Strategy
    - boot to a shell first
    - run `vim1s-hdmi-probe`
    - only consider boot-time DRM after that is stable
-7. Keep using the Ubuntu BSP as the cheat sheet.
+7. Before touching audio/HDMI again, land the low-risk IR/I2C/GPIO coverage
+   patch and re-run the manual survey.
+8. Keep using the Ubuntu BSP as the cheat sheet.
    - Prefer copying the working runtime shape over inventing local variants.
 
 Immediate Next Commands
@@ -192,12 +219,14 @@ sync
 ```
 - After boot:
 ```bash
-cat /var/log/vim1s-hw-survey.log
+vim1s-hw-survey > /tmp/vim1s-hw-survey.log 2>&1
+cat /tmp/vim1s-hw-survey.log
 ip -br link
 iw dev
 rfkill list
 hciconfig -a
 journalctl -b | grep -Ei 'dhd|firmware|wlan|bluetooth'
+sudo vim1s-audio-probe
 sudo vim1s-hdmi-probe
 ```
 

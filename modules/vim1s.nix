@@ -255,11 +255,12 @@ PY
     done
 
     section "GPIO"
-    run_sh "ls -l /dev/gpiochip*"
+    run_sh "ls -l /dev/gpiochip* /dev/gpiomem*"
     run gpiodetect
     run gpioinfo
 
     section "I2C"
+    run_sh "ls -l /dev/i2c*"
     run i2cdetect -l
 
     section "Thermal"
@@ -271,7 +272,7 @@ PY
     done
 
     section "Recent Relevant Dmesg"
-    run_sh "dmesg | grep -Ei 'dhd|wifi|bluetooth|firmware|stmmac|dwmac|mdio|phy|drm|hdmi|cec|snd|audio|auge|tdm|spdif|pdm|ir|gpio|led|pwm' | tail -n 300"
+    run_sh "dmesg | grep -Ei 'dhd|wifi|bluetooth|firmware|stmmac|dwmac|mdio|phy|drm|hdmi|cec|snd|audio|auge|tdm|spdif|pdm|ir|gpio|gpiomem|led|pwm|i2c' | tail -n 300"
   '';
   audioProbeTool = pkgs.writeShellScriptBin "vim1s-audio-probe" ''
     #!/bin/sh
@@ -500,6 +501,7 @@ CONFIG_BCMDHD_SDIO=y
 CONFIG_BCMDHD_OOB=y
 # CONFIG_BCMDHD_SDIO_IRQ is not set
 # CONFIG_AMLOGIC_NPU is not set
+CONFIG_IR_MESON=m
 
 # Fix link error from hid-core referencing uhid_hid_driver:
 # Build UHID into the kernel so hid-core can reference it.
@@ -535,6 +537,7 @@ EOF
       grep -E '^(CONFIG_AMLOGIC_MEDIA_MODULE|CONFIG_AMLOGIC_MEDIA_UTILS|CONFIG_AMLOGIC_DRM|CONFIG_AMLOGIC_HDMITX|CONFIG_AMLOGIC_VPU|CONFIG_AMLOGIC_VOUT|CONFIG_AMLOGIC_SECMON|CONFIG_AMLOGIC_CPU_INFO)=' .config || true
       grep -E '^(CONFIG_AMLOGIC_EFUSE_UNIFYKEY|CONFIG_AMLOGIC_EFUSE|CONFIG_AMLOGIC_UNIFYKEY)=' .config || true
       grep -E '^(CONFIG_BCMDHD|# CONFIG_AMLOGIC_NPU is not set)' .config || true
+      grep -E '^(CONFIG_IR_MESON)=' .config || true
       grep -E '^(CONFIG_REGULATOR_GPIO)=' .config || true
       grep -E '^(# CONFIG_(COMMON_CLK_GXBB|COMMON_CLK_AXG|COMMON_CLK_AXG_AUDIO|COMMON_CLK_G12A|PINCTRL_MESON|MMC_MESON_GX|MMC_CQHCI) is not set)$' .config || true
 
@@ -578,6 +581,10 @@ EOF
       # vendor NPU disabled until its include wiring is fixed separately.
       grep -qxF 'CONFIG_BCMDHD=m' .config || {
         echo "Unexpected kernel config: BCMDHD is not enabled as a module" >&2
+        exit 1
+      }
+      grep -qxF 'CONFIG_IR_MESON=m' .config || {
+        echo "Unexpected kernel config: IR_MESON is not enabled as a module" >&2
         exit 1
       }
       if grep -q '^CONFIG_AMLOGIC_NPU=' .config; then
@@ -780,6 +787,8 @@ in
       "amlogic_mdio_g12a"
       "amlogic-wireless"
       "dhd"
+      "i2c-dev"
+      "meson-ir"
     ];
 
     # Keep the vendor MDIO mux from racing ahead of the DWMAC side during
@@ -905,11 +914,20 @@ in
   };
   users.users.nixos = {
     isNormalUser = true;
-    extraGroups = [ "wheel" "networkmanager" ];
+    extraGroups = [ "wheel" "networkmanager" "gpio" "i2c" "input" ];
     initialPassword = "nixos";
   };
+  users.groups.gpio = { };
+  users.groups.i2c = { };
+  users.groups.input = { };
   users.users.root.initialPassword = "root";
   security.sudo.wheelNeedsPassword = false;
+  services.udev.extraRules = ''
+    KERNEL=="gpiochip*", MODE="0660", GROUP="gpio"
+    KERNEL=="gpiomem", MODE="0660", GROUP="gpio"
+    KERNEL=="i2c-[0-9]*", MODE="0660", GROUP="i2c"
+    SUBSYSTEM=="input", KERNEL=="event*", MODE="0660", GROUP="input"
+  '';
 
   networking.networkmanager.enable = true;
   time.timeZone = "UTC";
