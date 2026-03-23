@@ -898,7 +898,7 @@ in
   # Minimal useful services on first boot
   services.openssh.enable = true;
   networking.firewall.enable = false;
-  services.getty.autologinUser = lib.mkDefault "nixos";
+  services.getty.autologinUser = lib.mkDefault "nixosATkhadas";
   systemd.services."serial-getty@ttyS0".enable = true;
   systemd.services.bluetooth-khadas = {
     description = "Khadas Bluetooth attach service";
